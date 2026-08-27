@@ -101,6 +101,14 @@ def shin_probabilities(decimal_odds):
     if f_lo is None or f_hi is None:
         return pis / B
 
+    # z=0 (proportional normalisation) is already an exact root when the
+    # book is fair (booksum B == 1): f_lo == 0 in that case. Handle this
+    # before the bracketing check below, since a product-sign test can't
+    # distinguish "root exactly at lo" from "no root in range" when
+    # f_lo == 0.
+    if abs(f_lo) < Z_TOL:
+        return pis / B
+
     # sum(p_i(z)) is decreasing in z typically starting from B-1 (>=0 when
     # book has overround) down toward <=0; if signs don't bracket a root,
     # fall back.
