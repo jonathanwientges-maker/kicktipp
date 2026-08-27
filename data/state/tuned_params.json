@@ -1,10 +1,11 @@
 {
-  "halflife": 365,
+  "halflife": 730,
   "use_negbin": false,
   "weights": [
-    0.4,
+    0.9,
     0.0,
-    0.6000000000000001
+    0.1
   ],
+  "draw_margin": 0.06,
   "as_of_season": 2023
 }
