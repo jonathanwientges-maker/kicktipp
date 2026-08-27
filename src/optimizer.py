@@ -11,8 +11,20 @@ tendency term is therefore zero by construction (tendency(draw) IS "GD=0"
 already counted at the 3-point level; there's no additional 2-point
 region beyond the draws already paid at 3 points).
 
-Recommend argmax EV. Also output the top-5 tips with EVs, the full grid,
-P(H/D/A), and a close-call flag when EV(top) - EV(second) < CLOSE_CALL_EV_MARGIN.
+Recommend argmax EV, subject to the draw-tip margin (fix round F3,
+data/reports/diagnosis.md T2/T6): a drawn candidate tip (h == a) may only
+be the recommended tip if its EV exceeds the best NON-draw tip's EV by at
+least `draw_margin`. Draw tips carry no 2-point tendency floor the way a
+wrong-GD tendency tip does (a wrong draw call on a decisive result scores
+0, not 2), so their EV estimate carries asymmetric downside risk under
+lambda error -- the diagnosis found 11 of the 15 worst single-match
+losses were exactly this failure mode. The top5/ev_grid/close_call
+outputs are still computed from the raw (unhandicapped) EVs so the
+report can show the true EV landscape; only the recommended `tip` field
+applies the margin.
+
+Also output the top-5 tips with EVs, the full grid, P(H/D/A), and a
+close-call flag when EV(top) - EV(second) < CLOSE_CALL_EV_MARGIN.
 """
 import numpy as np
 
@@ -67,10 +79,17 @@ def compute_ev_grid(grid, max_sum=8):
     return ev
 
 
-def recommend_tip(grid, max_sum=8, close_call_margin=config.CLOSE_CALL_EV_MARGIN):
+def recommend_tip(grid, max_sum=8, close_call_margin=config.CLOSE_CALL_EV_MARGIN,
+                   draw_margin=config.DRAW_MARGIN):
     """
     Full B5 output: recommended tip, top-5 tips with EVs, P(H/D/A), and a
     close-call flag.
+
+    `draw_margin` (fix round F3): the top-ranked candidate is used as-is
+    UNLESS it is a draw tip (h == a) whose EV does not exceed the best
+    non-draw tip's EV by at least `draw_margin` -- in that case the best
+    non-draw tip is recommended instead. top5/ev_grid/close_call are
+    still computed from the raw, unhandicapped EV ranking.
 
     Returns dict:
         {
@@ -92,6 +111,15 @@ def recommend_tip(grid, max_sum=8, close_call_margin=config.CLOSE_CALL_EV_MARGIN
     close_call = False
     if runner_up is not None:
         close_call = (top_ev - runner_up[1]) < close_call_margin
+
+    if draw_margin > 0 and top_tip[0] == top_tip[1]:
+        best_non_draw = None
+        for cand_tip, cand_ev in ranked:
+            if cand_tip[0] != cand_tip[1]:
+                best_non_draw = (cand_tip, cand_ev)
+                break
+        if best_non_draw is not None and (top_ev - best_non_draw[1]) < draw_margin:
+            top_tip, top_ev = best_non_draw
 
     n = grid.shape[0] - 1
     idx = np.arange(n + 1)

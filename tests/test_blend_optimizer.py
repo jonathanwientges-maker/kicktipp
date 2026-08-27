@@ -117,3 +117,75 @@ def test_score_tip_all_outcomes():
     assert optimizer.score_tip((2, 1), (0, 0)) == config.POINTS_WRONG
     # Draw tip scoring any other draw = 3 points (GD=0 covers all draws).
     assert optimizer.score_tip((1, 1), (2, 2)) == config.POINTS_GOALDIFF
+
+
+def test_draw_margin_zero_is_a_noop():
+    """draw_margin=0.0 (the default) must reproduce the unhandicapped
+    argmax exactly -- a regression guard that the F3 change didn't alter
+    behavior when the feature is off."""
+    grid = _toy_grid(lam_h=1.4, lam_a=1.4, rho=0.0)  # symmetric, draw-leaning
+    unmargined = optimizer.recommend_tip(grid, draw_margin=0.0)
+    default = optimizer.recommend_tip(grid)
+    assert unmargined["tip"] == default["tip"]
+
+
+def test_draw_margin_suppresses_a_marginal_draw_tip():
+    """Construct a grid where the EV-argmax tip is a draw whose margin
+    over the best non-draw tip is smaller than draw_margin -- with the
+    margin applied, recommend_tip must switch to the best non-draw tip."""
+    max_goals = 4
+    n = max_goals + 1
+    grid = np.zeros((n, n))
+    # Engineer a grid where 1-1 is the EV argmax by a narrow margin over
+    # 2-1 (a non-draw tip), by giving 1-1 slightly more exact-hit mass
+    # than any single non-draw cell, while keeping the away/home tendency
+    # masses close.
+    grid[1, 1] = 0.16
+    grid[2, 1] = 0.15
+    grid[1, 0] = 0.10
+    grid[0, 1] = 0.10
+    grid[2, 0] = 0.09
+    grid[0, 2] = 0.09
+    grid[3, 1] = 0.05
+    grid[1, 3] = 0.05
+    grid[0, 0] = 0.07
+    grid[2, 2] = 0.07
+    remaining = 1.0 - grid.sum()
+    grid[3, 3] += remaining
+
+    no_margin = optimizer.recommend_tip(grid, draw_margin=0.0)
+    ev_map = no_margin["ev_grid"]
+    best_non_draw_ev = max(ev for (h, a), ev in ev_map.items() if h != a)
+    draw_ev = ev_map[(1, 1)]
+    gap = draw_ev - best_non_draw_ev
+
+    assert no_margin["tip"] == (1, 1), "test setup must make 1-1 the raw argmax"
+    assert 0 <= gap, "test setup requires 1-1 to actually lead"
+
+    # With a margin larger than the actual gap, the draw must be
+    # suppressed in favor of the best non-draw tip.
+    margined = optimizer.recommend_tip(grid, draw_margin=gap + 0.01)
+    assert margined["tip"][0] != margined["tip"][1], "draw tip should have been suppressed"
+    assert margined["tip"] != (1, 1)
+
+    # top5/ev_grid/close_call must be unaffected by the margin (still
+    # computed from the raw ranking).
+    assert margined["top5"] == no_margin["top5"]
+    assert margined["ev_grid"] == no_margin["ev_grid"]
+    assert margined["close_call"] == no_margin["close_call"]
+
+
+def test_draw_margin_keeps_a_decisive_draw_tip():
+    """If the draw tip's EV lead over the best non-draw tip exceeds
+    draw_margin, it must still be recommended (the margin is a
+    handicap, not an outright ban on draw tips)."""
+    grid = _toy_grid(lam_h=1.0, lam_a=1.0, rho=0.0)  # symmetric, real draw signal
+    no_margin = optimizer.recommend_tip(grid, draw_margin=0.0)
+    ev_map = no_margin["ev_grid"]
+    if no_margin["tip"][0] != no_margin["tip"][1]:
+        pytest.skip("test setup's raw argmax isn't a draw tip; nothing to assert here")
+    best_non_draw_ev = max(ev for (h, a), ev in ev_map.items() if h != a)
+    gap = ev_map[no_margin["tip"]] - best_non_draw_ev
+
+    small_margin = optimizer.recommend_tip(grid, draw_margin=max(gap - 0.001, 0.0))
+    assert small_margin["tip"] == no_margin["tip"]

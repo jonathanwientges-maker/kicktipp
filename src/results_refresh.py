@@ -96,7 +96,7 @@ def refresh_and_score():
             lam_h, lam_a, dc_fit["rho"], use_negbin=tuned.get("use_negbin", False),
             dispersion=dispersion,
         )
-        rec = optimizer.recommend_tip(grid)
+        rec = optimizer.recommend_tip(grid, draw_margin=tuned.get("draw_margin", config.DRAW_MARGIN))
         result = (int(m["home_goals"]), int(m["away_goals"]))
         model_points = optimizer.score_tip(rec["tip"], result)
         always21_points = optimizer.score_tip((2, 1), result)

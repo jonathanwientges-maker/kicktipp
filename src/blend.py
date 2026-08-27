@@ -35,6 +35,22 @@ def simplex_grid(step=config.BLEND_STEP):
     return combos
 
 
+def market_anchored_simplex_grid(step=config.BLEND_STEP,
+                                  min_market_weight=config.MIN_MARKET_WEIGHT):
+    """
+    Fix round F2 (data/reports/diagnosis.md T1): the same simplex as
+    simplex_grid, but constrained to w_market >= min_market_weight. The
+    market is the sharpest single source of the three (T4: small
+    inversion residuals; T1's key table: every unconstrained-search
+    alternative -- pooled, fixed, pure-market -- beat the per-season
+    "optimal" tuned weights out of sample); xG and DC are meant to enter
+    as corrections on top of the market signal, not as replacements for
+    it. For step=0.1 and min_market_weight=0.5, this yields 21 combos
+    (w_m in {0.5..1.0}, C(n+1,2) triangular counts summing to 21).
+    """
+    return [w for w in simplex_grid(step=step) if w[0] >= min_market_weight - 1e-9]
+
+
 def blend_log_lambda(lam_market, lam_xg, lam_dc, weights):
     """
     lam_market/lam_xg/lam_dc: each a (lambda_h, lambda_a) pair (may

@@ -76,14 +76,25 @@ def _synthetic_lambda_table(n=6, halflife=365):
 def test_tune_hyperparams_from_table_prefers_informative_dc_signal():
     """With market/xG lambdas deliberately uninformative (near 1-1, i.e.
     poor at predicting the actual 2-0 results) and DC lambdas that
-    exactly match the true result pattern, the weight search should place
-    most weight on DC."""
+    exactly match the true result pattern, the (F2) market-anchored
+    weight search should push w_DC to the maximum the w_market >= 0.5
+    constraint allows (i.e. the boundary (0.5, 0.0, 0.5)), and w_xG
+    should get none of the remaining weight since it's equally
+    uninformative as the market here."""
     import config
     df = _synthetic_lambda_table(n=8, halflife=config.DC_HALFLIFE_GRID[0])
     best = backtest.tune_hyperparams_from_table(df)
     assert best["halflife"] == config.DC_HALFLIFE_GRID[0]
     w_m, w_x, w_d = best["weights"]
-    assert w_d >= w_m and w_d >= w_x
+    assert w_m == pytest.approx(config.MIN_MARKET_WEIGHT)
+    assert w_d == pytest.approx(1.0 - config.MIN_MARKET_WEIGHT)
+    assert w_x == pytest.approx(0.0)
+
+    # The constraint must actually bind here: the unconstrained optimum
+    # (recorded for T-FIX transparency, fix round F2) should prefer DC
+    # even more heavily than the constrained choice allows.
+    unconstrained = best["unconstrained_optimum"]
+    assert unconstrained["weights"][2] > w_d  # more DC weight than the constrained pick
 
 
 def test_tune_hyperparams_from_table_returns_valid_weights():
@@ -94,6 +105,14 @@ def test_tune_hyperparams_from_table_returns_valid_weights():
     assert abs(sum(best["weights"]) - 1.0) < 1e-9
     assert best["halflife"] in config.DC_HALFLIFE_GRID
     assert isinstance(best["use_negbin"], bool)
+    # F2: market-anchored constraint must hold on every returned combo.
+    assert best["weights"][0] >= config.MIN_MARKET_WEIGHT - 1e-9
+    # F3: draw_margin must be one of the tuned grid values.
+    assert best["draw_margin"] in config.DRAW_MARGIN_GRID
+    # F2 transparency: unconstrained_optimum recorded alongside the pick.
+    assert "unconstrained_optimum" in best
+    assert best["unconstrained_optimum"] is not None
+    assert abs(sum(best["unconstrained_optimum"]["weights"]) - 1.0) < 1e-9
 
 
 def test_tune_hyperparams_from_table_survives_nan_lam_xg_at_zero_weight():

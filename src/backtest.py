@@ -19,8 +19,20 @@ Baselines computed alongside the model, per match:
                                       (key comparison: model must beat this)
   (5) closing-odds EV ceiling      -- optimizer on closing-odds market grid
                                       (evaluation-only, never a feature)
-  (6) Understat forecast EV        -- optimizer on a grid built from
-                                      forecast_win/draw/loss (amendment pt 5)
+  (6) post-hoc xG reference (NOT attainable pre-match; diagnostics only,
+      excluded from all acceptance criteria -- see fix round F6 /
+      data/reports/diagnosis.md T0)
+                                    -- optimizer on a grid built from
+                                      forecast_win/draw/loss (amendment pt 5).
+                                      T0 found this correlates 0.958 with
+                                      that SAME match's own realized xG
+                                      vs only 0.561 with pre-match market
+                                      lambdas -- it is Understat's
+                                      post-match "expected result given
+                                      the shots actually taken" figure,
+                                      not a genuine pre-match prediction,
+                                      and must never be compared against
+                                      as if it were one.
 
 Secondary diagnostics: 1X2 RPS, exact-score hit rate, GD hit rate,
 tendency hit rate.
@@ -89,9 +101,17 @@ def closing_odds_grid(row, max_goals=config.GRID_MAX_GOALS):
     return _poisson_grid(lam_h, lam_a, max_goals)
 
 
-def forecast_grid(row, max_goals=config.GRID_MAX_GOALS):
-    """Understat forecast_win/draw/loss -> a score grid via lambda
-    inversion on those probabilities alone (benchmark #6, amendment pt 5).
+def posthoc_xg_reference_grid(row, max_goals=config.GRID_MAX_GOALS):
+    """
+    Fix round F6 (data/reports/diagnosis.md T0): Understat
+    forecast_win/draw/loss -> a score grid via lambda inversion on those
+    probabilities alone (benchmark #6, amendment pt 5). Renamed from
+    forecast_grid/"Understat forecast EV" -- T0 measured this correlates
+    0.958 with that SAME match's own realized xG difference vs only
+    0.561 with pre-match market-implied lambdas, meaning it needs
+    shot-by-shot information from the match itself and is NOT computable
+    before kickoff. It is retained purely as a diagnostics row (see
+    _summarise_season) and MUST NOT be used in any acceptance comparison.
     """
     fw, fd, fl = row.get("forecast_win"), row.get("forecast_draw"), row.get("forecast_loss")
     if any(v is None or (isinstance(v, float) and np.isnan(v)) for v in (fw, fd, fl)):
@@ -147,21 +167,44 @@ def rps_1x2(grid, result):
 def tune_hyperparams_from_table(tuning_df):
     """
     Grid-search (halflife x blend weights x USE_NEGBIN) on `tuning_df`
-    (a slice of the precomputed lambda table for training seasons ONLY,
-    strictly < S), maximizing total Kicktipp points. Returns the best
+    (a slice of the precomputed lambda table -- fix round F1 pools this
+    over ALL available prior seasons, not a single-season holdout; see
+    run_backtest), maximizing total Kicktipp points. Returns the best
     combo as a dict.
+
+    Fix round F2: the weight search uses blend.market_anchored_simplex_grid
+    (w_market >= config.MIN_MARKET_WEIGHT) instead of the full
+    unconstrained simplex -- diagnosis.md T1 found the unconstrained
+    per-season "optimum" was actively worse out-of-sample than either a
+    fixed (0.8, 0.1, 0.1) vector or pure market alone.
+
+    Fix round F3: config.DRAW_MARGIN_GRID is searched jointly with the
+    weights (cheap: it only changes optimizer.recommend_tip's tie-break,
+    not the score grid itself, so it's an extra loop, not an extra
+    blend/grid computation).
 
     No scipy calls, no DC fits, no per-match dict lookups: every lambda
     is already a column in tuning_df. The inner loops call
     blend.blend_log_lambda / blend.build_final_grid / optimizer per
     match, which are all cheap numpy array ops (~0.15ms/match combined
-    per the profiling), so the full 396-combo search runs in well under
-    a minute even over several seasons of tuning data.
+    per the profiling).
+
+    Returns a dict with an extra 'unconstrained_optimum' key recording
+    what the UNCONSTRAINED (full simplex, no market floor) unconstrained
+    weight search would have picked, for T-FIX transparency (F2's
+    "record... what the unconstrained pooled optimum would have been").
     """
     best = None
-    weight_combos = blend.simplex_grid(step=config.BLEND_STEP)
+    weight_combos = blend.market_anchored_simplex_grid(
+        step=config.BLEND_STEP, min_market_weight=config.MIN_MARKET_WEIGHT
+    )
+    unconstrained_combos = blend.simplex_grid(step=config.BLEND_STEP)
+    unconstrained_best = None
+
     n_combos_done = 0
-    total_combos = len(config.DC_HALFLIFE_GRID) * 2 * len(weight_combos)
+    total_combos = (
+        len(config.DC_HALFLIFE_GRID) * 2 * len(weight_combos) * len(config.DRAW_MARGIN_GRID)
+    )
 
     for halflife in config.DC_HALFLIFE_GRID:
         h_col, a_col, r_col = (
@@ -179,22 +222,29 @@ def tune_hyperparams_from_table(tuning_df):
 
         # lam_xg is NaN for matches in a team's rolling-window warmup
         # (most commonly a newly-promoted team's first same-venue
-        # matches -- see features.py). blend_log_lambda's weighted-log
-        # blend does NOT treat a 0-weight NaN term as harmless: 0.0 *
-        # log(nan) = nan in IEEE arithmetic, so an unguarded NaN here
-        # (unlike lam_market, which is separately renormalised away when
-        # missing) silently poisons the blended lambda even at weight
-        # combos that assign lam_xg zero weight. Substitute the
-        # configured fallback wherever it's missing, exactly as the main
-        # per-season evaluation loop below already does.
+        # matches -- see features.py; F4 narrows this further but does
+        # not eliminate it, e.g. teams with shots-incomplete D2 history).
+        # blend_log_lambda's weighted-log blend does NOT treat a
+        # 0-weight NaN term as harmless: 0.0 * log(nan) = nan in IEEE
+        # arithmetic, so an unguarded NaN here (unlike lam_market, which
+        # is separately renormalised away when missing) silently
+        # poisons the blended lambda even at weight combos that assign
+        # lam_xg zero weight. Substitute the configured fallback
+        # wherever it's missing, exactly as the main per-season
+        # evaluation loop below already does.
         xg_nan_mask = np.isnan(lam_xg[:, 0]) | np.isnan(lam_xg[:, 1])
         if xg_nan_mask.any():
             lam_xg[xg_nan_mask] = config.FALLBACK_LAMBDAS
 
         for use_negbin in (False, True):
             dispersion = (0.05, 0.05) if use_negbin else None
-            for weights in weight_combos:
-                total_points = 0
+
+            # Pre-blend every match's final (lam_h, lam_a, grid) ONCE
+            # per weight combo, then sweep draw_margin cheaply over the
+            # already-computed EV grids (recommend_tip's draw-margin
+            # logic only rereads the ev_grid it already built).
+            for weights in unconstrained_combos:
+                total_points_unconstrained = 0
                 for i in range(len(sub)):
                     lam_h, lam_a = blend.blend_log_lambda(
                         tuple(lam_market[i]), tuple(lam_xg[i]), tuple(lam_dc[i]), weights
@@ -203,17 +253,37 @@ def tune_hyperparams_from_table(tuning_df):
                         lam_h, lam_a, rho[i], use_negbin=use_negbin, dispersion=dispersion
                     )
                     rec = optimizer.recommend_tip(grid)
-                    total_points += optimizer.score_tip(rec["tip"], results[i])
-                if best is None or total_points > best["points"]:
-                    best = {
+                    total_points_unconstrained += optimizer.score_tip(rec["tip"], results[i])
+                if unconstrained_best is None or total_points_unconstrained > unconstrained_best["points"]:
+                    unconstrained_best = {
                         "halflife": halflife, "use_negbin": use_negbin,
-                        "weights": weights, "points": total_points,
+                        "weights": weights, "points": total_points_unconstrained,
                     }
-                n_combos_done += 1
-                if n_combos_done % 50 == 0:
-                    _log("  tuning progress: {0}/{1} combos evaluated (best so far: {2} pts)".format(
-                        n_combos_done, total_combos, best["points"] if best else None
-                    ))
+
+            for weights in weight_combos:
+                for draw_margin in config.DRAW_MARGIN_GRID:
+                    total_points = 0
+                    for i in range(len(sub)):
+                        lam_h, lam_a = blend.blend_log_lambda(
+                            tuple(lam_market[i]), tuple(lam_xg[i]), tuple(lam_dc[i]), weights
+                        )
+                        grid = blend.build_final_grid(
+                            lam_h, lam_a, rho[i], use_negbin=use_negbin, dispersion=dispersion
+                        )
+                        rec = optimizer.recommend_tip(grid, draw_margin=draw_margin)
+                        total_points += optimizer.score_tip(rec["tip"], results[i])
+                    if best is None or total_points > best["points"]:
+                        best = {
+                            "halflife": halflife, "use_negbin": use_negbin,
+                            "weights": weights, "draw_margin": draw_margin, "points": total_points,
+                        }
+                    n_combos_done += 1
+                    if n_combos_done % 50 == 0:
+                        _log("  tuning progress: {0}/{1} combos evaluated (best so far: {2} pts)".format(
+                            n_combos_done, total_combos, best["points"] if best else None
+                        ))
+
+    best["unconstrained_optimum"] = unconstrained_best
     return best
 
 
@@ -241,30 +311,36 @@ def run_backtest(first_season=config.BACKTEST_FIRST, last_season=None):
     for season in range(first_season, last_season + 1):
         _log("=== Season {0} ===".format(season))
         season_rows = table[table["season"] == season]
-        train_seasons_window = [
-            s for s in range(season - config.DC_TRAIN_SEASONS - 3, season)
-            if s in table["season"].unique()
-        ]
-        tuning_train_seasons = [s for s in train_seasons_window if s < season]
+
+        # Fix round F1: pooled leave-one-season-out tuning. All
+        # hyperparameters (weights, halflife, negbin, draw_margin) are
+        # selected by maximizing total Kicktipp points POOLED over every
+        # available season strictly before S -- never a single
+        # most-recent-season holdout (the old per-season nested-holdout
+        # path is deleted entirely; diagnosis.md T1 found it was
+        # actively worse out-of-sample than simpler alternatives).
+        # Minimum 3 seasons pooled; earlier predicted seasons use
+        # whatever is available (fewer than 3 -> flat defaults, same
+        # warmup fallback as before).
+        tuning_train_seasons = sorted(s for s in table["season"].unique() if s < season)
         tuning_df = table[table["season"].isin(tuning_train_seasons)]
 
-        if len(tuning_df) < 100:
+        if len(tuning_train_seasons) < 3 or len(tuning_df) < 100:
             best_params = {
                 "halflife": config.DC_HALFLIFE_GRID[1], "use_negbin": False,
-                "weights": (1 / 3, 1 / 3, 1 / 3), "points": None,
+                "weights": (1 / 3, 1 / 3, 1 / 3), "draw_margin": 0.0,
+                "points": None, "unconstrained_optimum": None,
             }
-            _log("season {0}: insufficient tuning history, using flat defaults.".format(season))
+            _log("season {0}: insufficient tuning history ({1} prior seasons), "
+                 "using flat defaults.".format(season, len(tuning_train_seasons)))
         else:
-            # Nested: tune only on the last tuning season as a holdout
-            # within the training pool, never on season S itself.
-            holdout_season = max(tuning_train_seasons)
-            best_params = tune_hyperparams_from_table(
-                tuning_df[tuning_df["season"] == holdout_season]
-            )
-        _log("season {0} tuned params: halflife={1} use_negbin={2} weights={3} (pts={4})".format(
-            season, best_params["halflife"], best_params["use_negbin"],
-            best_params["weights"], best_params["points"]
-        ))
+            best_params = tune_hyperparams_from_table(tuning_df)
+        _log("season {0} tuned params: halflife={1} use_negbin={2} weights={3} "
+             "draw_margin={4} (pooled over {5} seasons, pts={6})".format(
+                 season, best_params["halflife"], best_params["use_negbin"],
+                 best_params["weights"], best_params["draw_margin"],
+                 len(tuning_train_seasons), best_params["points"]
+             ))
 
         h_col = "lam_dc_h_{0}".format(best_params["halflife"])
         a_col = "lam_dc_a_{0}".format(best_params["halflife"])
@@ -289,7 +365,7 @@ def run_backtest(first_season=config.BACKTEST_FIRST, last_season=None):
             model_grid = blend.build_final_grid(
                 lam_h, lam_a, rho, use_negbin=best_params["use_negbin"], dispersion=dispersion,
             )
-            model_rec = optimizer.recommend_tip(model_grid)
+            model_rec = optimizer.recommend_tip(model_grid, draw_margin=best_params["draw_margin"])
             model_points = optimizer.score_tip(model_rec["tip"], result)
             always21_points = optimizer.score_tip((2, 1), result)
 
@@ -328,13 +404,16 @@ def run_backtest(first_season=config.BACKTEST_FIRST, last_season=None):
             else:
                 row_out["closing_ev_points"] = None
 
+            # Diagnostics only -- NEVER part of acceptance criteria (F6/T0).
             forecast_row = forecast_by_match_id.get(mid)
-            f_grid = forecast_grid(forecast_row) if forecast_row is not None else None
-            if f_grid is not None:
-                f_rec = optimizer.recommend_tip(f_grid)
-                row_out["forecast_ev_points"] = optimizer.score_tip(f_rec["tip"], result)
+            posthoc_grid = (
+                posthoc_xg_reference_grid(forecast_row) if forecast_row is not None else None
+            )
+            if posthoc_grid is not None:
+                posthoc_rec = optimizer.recommend_tip(posthoc_grid)
+                row_out["posthoc_xg_ev_points"] = optimizer.score_tip(posthoc_rec["tip"], result)
             else:
-                row_out["forecast_ev_points"] = None
+                row_out["posthoc_xg_ev_points"] = None
 
             all_rows.append(row_out)
 
@@ -358,7 +437,9 @@ def _summarise_season(season_df):
         "market_modal_points": _safe_sum("market_modal_points"),
         "market_ev_points": _safe_sum("market_ev_points"),
         "closing_ev_points": _safe_sum("closing_ev_points"),
-        "forecast_ev_points": _safe_sum("forecast_ev_points"),
+        # Diagnostics only -- NOT attainable pre-match, excluded from all
+        # acceptance criteria (fix round F6, data/reports/diagnosis.md T0).
+        "posthoc_xg_ev_points_DIAGNOSTIC_ONLY": _safe_sum("posthoc_xg_ev_points"),
         "rps_mean": float(season_df["rps"].mean()),
         "exact_hit_rate": float(season_df["exact_hit"].mean()),
         "gd_hit_rate": float(season_df["gd_hit"].mean()),
@@ -440,6 +521,7 @@ def write_state(results_df, season_results, last_season):
             "halflife": final_params["halflife"],
             "use_negbin": final_params["use_negbin"],
             "weights": list(final_params["weights"]),
+            "draw_margin": final_params["draw_margin"],
             "as_of_season": last_season,
         }, f, indent=2)
 

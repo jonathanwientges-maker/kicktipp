@@ -29,6 +29,18 @@ XG_WINDOW_N = 8               # same-venue rolling window (matches)
 LAMBDA_BLEND = 0.5            # own attack vs opponent-conceded weight
 GRID_MAX_GOALS = 10           # score grid 0..10 (inclusive)
 
+# Bump this whenever the LOGIC of feature computation changes in a way
+# that isn't captured by any config VALUE above -- e.g. F4 (fix round,
+# data/reports/diagnosis.md) wired the promoted-team prior into
+# features.compute_lambda_xg / src/promoted_prior.py, which changes the
+# lambda table's contents for the exact same config values as before.
+# src/lambda_table.py's cache-invalidation hash includes this constant
+# precisely so a code-only change like that can't silently serve a stale
+# cached table (which is what happened the first time -- the cache was
+# rebuilt from a stale run right after F4 landed, caught only because
+# the discrepancy was checked for manually).
+FEATURE_LOGIC_VERSION = 2
+
 # ---------------------------------------------------------------------------
 # Dixon-Coles
 # ---------------------------------------------------------------------------
@@ -39,6 +51,27 @@ DC_TRAIN_SEASONS = 4                  # seasons of trailing history per DC fit
 # Blend / ensemble
 # ---------------------------------------------------------------------------
 BLEND_STEP = 0.1              # simplex grid step for (w_market, w_xG, w_DC) search
+
+# Fix round F2 (backtest diagnosis, data/reports/diagnosis.md T1): the
+# weight search is constrained to w_market >= MIN_MARKET_WEIGHT. The
+# market is the sharpest single source of the three (small inversion
+# residuals, T4; and every unconstrained-search alternative -- pooled,
+# fixed, pure-market -- beat the per-season-tuned weights out of sample,
+# T1's key table); xG and DC are meant to enter as corrections on top of
+# the market signal, not as replacements for it.
+MIN_MARKET_WEIGHT = 0.5
+
+# Fix round F3 (diagnosis T2/T6): a drawn tip (h == a) is only
+# recommended if its EV exceeds the best non-draw tip's EV by at least
+# DRAW_MARGIN. Draw tips carry no 2-point tendency floor (a wrong draw
+# tip on a decisive result scores 0, whereas a wrong-GD tendency tip
+# still often scores 2), so their EV estimate carries asymmetric
+# downside risk under lambda error -- the diagnosis found 11 of the 15
+# worst single-match losses were exactly this failure mode (model tips
+# 1-1, market correctly reads a tendency winner). Tuned jointly with the
+# blend weights over DRAW_MARGIN_GRID in the backtest.
+DRAW_MARGIN = 0.0             # default/fallback; overwritten by tuning
+DRAW_MARGIN_GRID = [0.00, 0.02, 0.04, 0.06, 0.08]
 
 # ---------------------------------------------------------------------------
 # Fallbacks

@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 import config
-from src import dixon_coles as dc, features, market, storage
+from src import dixon_coles as dc, features, market, promoted_prior, storage
 
 LAMBDA_TABLE_PATH = os.path.join(config.STATE_DIR, "lambda_table.parquet")
 LAMBDA_TABLE_META_PATH = os.path.join(config.STATE_DIR, "lambda_table_meta.json")
@@ -50,6 +50,9 @@ def _config_hash():
         "BACKTEST_FIRST": config.BACKTEST_FIRST,
         "COLS_1X2": config.COLS_1X2,
         "COLS_OU": config.COLS_OU,
+        # See config.FEATURE_LOGIC_VERSION's docstring: catches code-only
+        # changes to feature computation that no config VALUE reflects.
+        "FEATURE_LOGIC_VERSION": config.FEATURE_LOGIC_VERSION,
     }
     blob = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:16]
@@ -115,7 +118,18 @@ def compute_lam_market_column(matches_df, odds_by_match_id):
 
 
 def compute_lam_xg_columns(matches_df, shots_df):
-    enriched = features.compute_lambda_xg(matches_df, shots_df)
+    """
+    Fix round F4: seed promoted teams' rolling window with a D2-informed
+    prior (src/promoted_prior.py) instead of leaving it NaN until real
+    matches accumulate. Uses promoted_team_seeds_leakage_safe, which
+    fits the promotion regression separately per promoted bl_season
+    using only strictly-earlier promotion events -- a promoted team's
+    seed can never be influenced by a LATER promotion's first-season
+    outcome, which would otherwise be a genuine look-ahead leak in a
+    table meant to serve every predicted season out-of-sample.
+    """
+    promoted_seeds = promoted_prior.promoted_team_seeds_leakage_safe(matches_df)
+    enriched = features.compute_lambda_xg(matches_df, shots_df, promoted_seeds=promoted_seeds)
     enriched = enriched.set_index("match_id")
     lam_h = matches_df["match_id"].map(enriched["lambda_xg_h"]).values
     lam_a = matches_df["match_id"].map(enriched["lambda_xg_a"]).values

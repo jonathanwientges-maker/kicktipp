@@ -33,6 +33,7 @@ from src import (
     market,
     notify,
     optimizer,
+    promoted_prior,
     report,
     scrape_footballdata,
     scrape_understat,
@@ -179,7 +180,12 @@ def detect_new_teams(fixtures_df, known_understat_names, warnings):
 
 def rebuild_state(matches, shots):
     """Step 3: rebuild rolling xG + DC ratings from full history."""
-    xg_enriched = features.compute_lambda_xg(matches, shots)
+    # Fix round F4: seed promoted teams' rolling window with a
+    # D2-informed prior. Live prediction uses the "no held-out future"
+    # fit (promoted_team_seeds_for_live) -- there's no future to leak
+    # from when predicting the actual upcoming matchday.
+    promoted_seeds = promoted_prior.promoted_team_seeds_for_live(matches)
+    xg_enriched = features.compute_lambda_xg(matches, shots, promoted_seeds=promoted_seeds)
     xg_lookup = {
         r["match_id"]: (r["lambda_xg_h"], r["lambda_xg_a"])
         for _, r in xg_enriched.iterrows()
@@ -267,7 +273,7 @@ def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned
             lam_h, lam_a, dc_fit["rho"], use_negbin=tuned.get("use_negbin", False),
             dispersion=dispersion,
         )
-        rec = optimizer.recommend_tip(grid)
+        rec = optimizer.recommend_tip(grid, draw_margin=tuned.get("draw_margin", config.DRAW_MARGIN))
 
         mkt_probs = None
         odds_1x2 = market.pick_1x2_odds(fx)

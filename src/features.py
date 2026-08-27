@@ -96,8 +96,54 @@ def league_mean_penalty_xg(shots_df, matches_df, season, train_seasons=None):
     return float(total_pen_xg / n_team_matches)
 
 
+def _apply_promoted_prior_decay(roll, matches_df, promoted_seeds, window_n):
+    """
+    Fix round F4: for any team with a promoted-prior seed (see
+    src/promoted_prior.py), override the rolling npxg_for/against
+    computed by _venue_rolling for that team's first `window_n`
+    same-venue matches with the decaying blend of
+    (seed, real values so far) per features.blend_prior_with_real,
+    instead of the plain rolling().mean() over however-few real matches
+    exist (which is what every OTHER team gets, unaffected by this
+    function).
+
+    `roll` is the long DataFrame from build_rolling_table (already
+    sorted by team, datetime within each venue). Mutates and returns it.
+    """
+    if not promoted_seeds:
+        return roll
+
+    roll = roll.copy()
+    for team, seed in promoted_seeds.items():
+        for venue in ("home", "away"):
+            mask = (roll["team"] == team) & (roll["venue"] == venue)
+            team_rows = roll[mask].sort_values("datetime")
+            if len(team_rows) == 0:
+                continue
+
+            real_for, real_against = [], []
+            for idx, row in team_rows.iterrows():
+                k = len(real_for)
+                if k < window_n:
+                    decayed_for = blend_prior_with_real(
+                        seed["npxg_for_seed"], real_for, window_n=window_n
+                    )
+                    decayed_against = blend_prior_with_real(
+                        seed["npxg_against_seed"], real_against, window_n=window_n
+                    )
+                    roll.loc[idx, "roll_npxg_for"] = decayed_for
+                    roll.loc[idx, "roll_npxg_against"] = decayed_against
+                # Advance the real-values history with THIS match's
+                # actual npxg (available since it's now in the past
+                # relative to the next iteration) -- mirrors the
+                # shift(1) semantics of the plain rolling computation.
+                real_for.append(row["npxg_for"])
+                real_against.append(row["npxg_against"])
+    return roll
+
+
 def compute_lambda_xg(matches_df, shots_df, lambda_blend=config.LAMBDA_BLEND,
-                       window_n=config.XG_WINDOW_N):
+                       window_n=config.XG_WINDOW_N, promoted_seeds=None):
     """
     Full B2 pipeline: rolling npxG table + penalty add-back -> per-match
     (lambda_h, lambda_a) for every match in matches_df, using only data
@@ -105,9 +151,18 @@ def compute_lambda_xg(matches_df, shots_df, lambda_blend=config.LAMBDA_BLEND,
     out-of-sample; penalty prior for a match's season uses only earlier
     seasons).
 
+    `promoted_seeds` (fix round F4): optional dict {understat_team_name:
+    {'npxg_for_seed':.., 'npxg_against_seed':..}} from
+    src/promoted_prior.py. When given, a promoted team's first
+    `window_n` same-venue matches use the decaying prior/real blend
+    (features.blend_prior_with_real) instead of a plain rolling mean
+    over however-few real matches exist. When None (the default),
+    behavior is unchanged from before F4.
+
     Returns matches_df with columns lambda_xg_h, lambda_xg_a appended.
     """
     roll = build_rolling_table(matches_df, window_n=window_n)
+    roll = _apply_promoted_prior_decay(roll, matches_df, promoted_seeds, window_n)
 
     home_roll = roll[roll["venue"] == "home"][
         ["match_id", "team", "roll_npxg_for", "roll_npxg_against", "n_prior_matches"]
