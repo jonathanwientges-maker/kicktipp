@@ -253,8 +253,8 @@ def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned
 
         lam_xg = team_rolling_lambda_for_fixture(home_fd, away_fd, xg_enriched, known_fd_names)
 
-        home_understat = _fd_to_understat(home_fd, matches)
-        away_understat = _fd_to_understat(away_fd, matches)
+        home_understat = _fd_to_understat(home_fd)
+        away_understat = _fd_to_understat(away_fd)
         lam_dc = dc.dc_lambdas(dc_fit, home_understat, away_understat)
 
         weights = tuple(tuned["weights"])
@@ -284,9 +284,9 @@ def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned
     return match_contexts
 
 
-def _fd_to_understat(fd_name, matches):
+def _fd_to_understat(fd_name):
     """Reverse lookup: given a football-data name, find the corresponding
-    Understat name from history (or assume identity if never mapped)."""
+    Understat name (or assume identity if never mapped)."""
     reverse = {v: k for k, v in crosswalk.UNDERSTAT_TO_FD.items()}
     return reverse.get(fd_name, fd_name)
 

@@ -132,9 +132,14 @@ def fill_dc_columns(matches_df, halflife):
     handful of L-BFGS-B iterations instead of a cold start every time).
 
     Each matchday's fit uses only matches strictly before that matchday's
-    earliest kickoff -- the matchday being predicted is NEVER included in
-    its own training window (this is the exact leakage failure mode the
-    regression guard in tests/test_lambda_table.py checks for).
+    earliest kickoff, AND within the trailing DC_TRAIN_SEASONS seasons
+    plus the current season to date (config.DC_TRAIN_SEASONS = 4, per
+    dixon_coles.py's spec) -- an unbounded all-history training window
+    would both violate that spec and make every subsequent season's fit
+    slower than the last as history keeps accumulating. The matchday
+    being predicted is NEVER included in its own training window (this
+    is the exact leakage failure mode the regression guard in
+    tests/test_lambda_table.py checks for).
 
     Crash/resume granularity is at the halflife level, not the matchday
     level: build_lambda_table() persists the table to disk after each
@@ -143,7 +148,8 @@ def fill_dc_columns(matches_df, halflife):
     fits, not the whole table. A per-matchday checkpoint would require
     persisting the warm-start rating state itself (not just the output
     lambdas), which added complexity this doesn't currently need given
-    one halflife's full sequential fit takes well under a minute.
+    one halflife's full sequential fit takes well under a minute once
+    the training window is correctly bounded.
 
     Returns dict match_id -> (lam_h, lam_a, rho).
     """
@@ -155,9 +161,14 @@ def fill_dc_columns(matches_df, halflife):
 
     for i, day in enumerate(matchdays):
         day_matches = matches_df[matches_df["datetime"].dt.date == day]
+        current_season = int(day_matches["season"].iloc[0])
+        earliest_train_season = current_season - config.DC_TRAIN_SEASONS
 
         as_of = pd.Timestamp(day)
-        train = matches_df[matches_df["datetime"] < as_of]
+        train = matches_df[
+            (matches_df["datetime"] < as_of)
+            & (matches_df["season"] >= earliest_train_season)
+        ]
         if len(train) < 50:
             continue
 

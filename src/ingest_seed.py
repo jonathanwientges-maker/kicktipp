@@ -170,9 +170,11 @@ def build_matches_schema(matches_df):
 
 
 def harmonise_team_names(matches_df):
-    """Harmonise Understat home/away team names against a per-season known
-    football-data team-name universe once odds are loaded (validated at
-    join time in join.py). Here we just ensure crosswalk keys resolve."""
+    """Diagnostic pass over Understat home/away team names against the
+    crosswalk dict. Actual hard-fail validation against the real
+    football-data team-name universe happens at join time
+    (src/backtest.py::_join_odds_to_matches, via
+    src/crosswalk.py::to_fd_name)."""
     understat_names = set(matches_df["home_team"]).union(matches_df["away_team"])
     unresolved = [n for n in understat_names if n not in crosswalk.UNDERSTAT_TO_FD]
     # Names not in the crosswalk dict are assumed identity-mapped; that's

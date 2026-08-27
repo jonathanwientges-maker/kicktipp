@@ -156,3 +156,48 @@ def test_table_based_tip_matches_direct_computation_path():
     direct_rec = optimizer.recommend_tip(direct_grid)
 
     assert table_rec["tip"] == direct_rec["tip"]
+
+
+def test_fill_dc_columns_uses_trailing_window_not_full_history():
+    """Regression guard: fill_dc_columns must train each matchday's DC fit
+    on only the trailing DC_TRAIN_SEASONS seasons (+ current season to
+    date), never the full unbounded history. An earlier version of this
+    function passed the full multi-season matches_df as the training pool
+    for every matchday, which both violated the DC_TRAIN_SEASONS spec and
+    made every season's fit progressively (and needlessly) slower as
+    history accumulated. Detected here by adding an old, clearly-different
+    season's data and confirming it does NOT change a later matchday's
+    fitted lambda once that old season falls outside the trailing window."""
+    import config
+
+    teams = ("A", "B", "C", "D")
+    recent = _synthetic_matches(n_matchdays=60, teams=teams)  # season 2019
+
+    # An old season, far enough back to fall outside the trailing window,
+    # with a deliberately extreme/different goal pattern (would visibly
+    # shift ratings if it were ever included).
+    old_season = recent.copy()
+    old_season["season"] = 2019 - config.DC_TRAIN_SEASONS - 5
+    old_season["datetime"] = old_season["datetime"] - pd.Timedelta(days=365 * (config.DC_TRAIN_SEASONS + 5))
+    old_season["match_id"] = old_season["match_id"] - 100000
+    old_season["home_goals"] = 9  # extreme, would skew attack ratings hard if included
+    old_season["away_goals"] = 0
+
+    combined = pd.concat([old_season, recent], ignore_index=True)
+
+    dc_map_recent_only = lambda_table.fill_dc_columns(recent, halflife=365)
+    dc_map_with_old = lambda_table.fill_dc_columns(combined, halflife=365)
+
+    last_match = recent.sort_values("datetime").iloc[-1]
+    mid = last_match["match_id"]
+    assert mid in dc_map_recent_only and mid in dc_map_with_old
+
+    lam_recent_only = dc_map_recent_only[mid][:2]
+    lam_with_old = dc_map_with_old[mid][:2]
+
+    # If the old, extreme-scoreline season were leaking into the training
+    # window, these would differ noticeably. They should match closely
+    # (warm-start float noise aside) since the old season is outside the
+    # trailing DC_TRAIN_SEASONS window.
+    assert lam_recent_only[0] == pytest.approx(lam_with_old[0], abs=0.05)
+    assert lam_recent_only[1] == pytest.approx(lam_with_old[1], abs=0.05)
