@@ -2,21 +2,37 @@
 Understat scraper: league-season match list (xG/npxG/forecast) and
 per-match shot data.
 
-Understat embeds its data as JSON inside <script> tags on each page:
-  - league page:  https://understat.com/league/Bundesliga/{year}
-        -> `datesData` JSON: one row per match (id, datetime, teams,
-           goals, xG, forecast).
-  - match page:   https://understat.com/match/{id}
-        -> `shotsData` JSON: {'h': [...], 'a': [...]} per-shot detail
-           (minute, X, Y, xG, result, situation, shotType, player,
+Understat used to embed this data as JSON inside <script> tags on each
+page (`var datesData = JSON.parse('...')`), which is what the original
+version of this module regex-scraped. Understat has since restructured
+the site so that the league/match pages ship as a near-empty HTML shell
+and fetch their data client-side, via jQuery AJAX calls to a JSON API:
+  - league page:  GET https://understat.com/getLeagueData/{league}/{year}
+        -> {"teams": {...}, "players": [...], "dates": [...]}. The
+           `dates` list has the exact schema the old `datesData` had:
+           one row per match (id, datetime, h/a team info, goals, xG,
+           forecast).
+  - match page:   GET https://understat.com/getMatchData/{match_id}
+        -> {"rosters": {...}, "shots": {"h": [...], "a": [...]}, "tmpl": ...}.
+           The `shots` value has the exact schema the old `shotsData`
+           had (minute, X, Y, xG, result, situation, shotType, player,
            lastAction).
+
+Both endpoints require the request to look like the page's own AJAX call
+(X-Requested-With: XMLHttpRequest + a Referer pointing at the
+corresponding page) -- without those headers they 404 rather than
+silently degrading, so a change in that behavior surfaces loudly as an
+HTTP error, not a wrong answer. All fields in both payloads come back as
+JSON strings rather than native numbers (except `isResult`, a real
+bool); the existing parse_league_matches/parse_match_shots functions
+already coerce every field with explicit int()/float() calls, so numeric
+strings work with them unmodified -- verified directly against a live
+2024/25 Bundesliga match before this rewrite.
 
 Rate limiting: one request every config.UNDERSTAT_DELAY_S seconds minimum.
 3 retries with exponential backoff; on persistent failure the run aborts
 (raises -> non-zero exit at the caller).
 """
-import json
-import re
 import time
 
 import pandas as pd
@@ -43,14 +59,27 @@ def _throttle():
     _last_request_ts[0] = time.time()
 
 
-def _fetch_html(url):
+def _fetch_json(url, referer):
+    """
+    GET `url` as Understat's own front-end AJAX calls do: with
+    X-Requested-With + Referer set so the endpoint serves real data
+    instead of 404'ing. Retries on any failure, including a non-2xx
+    status or a body that doesn't parse as JSON (Understat returns an
+    HTML error page on 404, not JSON, so a decode failure here is a real
+    signal something is wrong, not a transient hiccup to swallow).
+    """
     last_err = None
+    headers = {
+        "User-Agent": USER_AGENT,
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": referer,
+    }
     for attempt in range(_RETRIES):
         _throttle()
         try:
-            resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
+            resp = requests.get(url, headers=headers, timeout=30)
             resp.raise_for_status()
-            return resp.text
+            return resp.json()
         except Exception as exc:  # noqa: BLE001 - deliberate broad retry
             last_err = exc
             if attempt < _RETRIES - 1:
@@ -62,36 +91,32 @@ def _fetch_html(url):
     )
 
 
-def _extract_json_var(html, var_name):
-    """
-    Understat encodes its embedded JSON as a JS-escaped string literal:
-        var datesData = JSON.parse('...\\x7B...');
-    Extract the quoted literal for `var_name`, unescape the \\xHH hex
-    escapes, and json.loads the result.
-    """
-    pattern = r"var\s+{0}\s*=\s*JSON\.parse\('(.*?)'\)".format(re.escape(var_name))
-    m = re.search(pattern, html, re.DOTALL)
-    if not m:
-        raise ValueError(
-            "Could not find embedded variable '{0}' in Understat page.".format(var_name)
-        )
-    raw = m.group(1)
-    decoded = raw.encode("utf-8").decode("unicode_escape").encode("latin1").decode("utf-8")
-    return json.loads(decoded)
-
-
 def fetch_league_season(league, year):
-    """Fetch the datesData match list for a league-season page."""
-    url = "{0}/league/{1}/{2}".format(config.UNDERSTAT_BASE, league, year)
-    html = _fetch_html(url)
-    return _extract_json_var(html, "datesData")
+    """Fetch the match list (the `dates` array) for a league-season."""
+    referer = "{0}/league/{1}/{2}".format(config.UNDERSTAT_BASE, league, year)
+    url = "{0}/getLeagueData/{1}/{2}".format(config.UNDERSTAT_BASE, league, year)
+    data = _fetch_json(url, referer)
+    if "dates" not in data:
+        raise ValueError(
+            "Understat getLeagueData response for {0}/{1} is missing the "
+            "'dates' key -- response shape may have changed again: keys "
+            "present were {2}".format(league, year, list(data.keys()))
+        )
+    return data["dates"]
 
 
 def fetch_match_shots(match_id):
-    """Fetch shotsData for a single match page."""
-    url = "{0}/match/{1}".format(config.UNDERSTAT_BASE, match_id)
-    html = _fetch_html(url)
-    return _extract_json_var(html, "shotsData")
+    """Fetch the shots dict ({'h': [...], 'a': [...]}) for a single match."""
+    referer = "{0}/match/{1}".format(config.UNDERSTAT_BASE, match_id)
+    url = "{0}/getMatchData/{1}".format(config.UNDERSTAT_BASE, match_id)
+    data = _fetch_json(url, referer)
+    if "shots" not in data:
+        raise ValueError(
+            "Understat getMatchData response for match {0} is missing the "
+            "'shots' key -- response shape may have changed again: keys "
+            "present were {1}".format(match_id, list(data.keys()))
+        )
+    return data["shots"]
 
 
 def _goals_and_xg(side_dict):
