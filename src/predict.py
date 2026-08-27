@@ -238,11 +238,13 @@ def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned
         (fixtures_df["Date"] >= now) & (fixtures_df["Date"] <= window_end)
     ].copy()
 
-    known_fd_names = set(fixtures_df["HomeTeam"]).union(fixtures_df["AwayTeam"]).union(
-        set(matches["home_team"].map(
-            lambda n: crosswalk.to_fd_name(n, known_fd_names=None)
-            if n in crosswalk.UNDERSTAT_TO_FD else n
-        ))
+    # The set of football-data-side names we can resolve a fixture
+    # against: every name seen in fixtures.csv itself, plus every
+    # historical Understat team name mapped through the crosswalk (or
+    # taken as-is for teams never needing a rename).
+    known_fd_names = set(fixtures_df["HomeTeam"]).union(fixtures_df["AwayTeam"])
+    known_fd_names |= set(
+        crosswalk.UNDERSTAT_TO_FD.get(n, n) for n in matches["home_team"].unique()
     )
 
     match_contexts = []
