@@ -10,7 +10,6 @@ nothing is lost, and exit non-zero so the workflow shows red.
 import os
 import smtplib
 import time
-from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -39,7 +38,12 @@ def build_message(subject, html_body, attachment_filename, attachment_html,
     alt.attach(MIMEText(html_body, "html"))
     msg.attach(alt)
 
-    attachment = MIMEApplication(attachment_html.encode("utf-8"), _subtype="html")
+    # text/html (not application/html, which isn't a registered MIME
+    # type) is the correct content-type for an .html attachment; the
+    # explicit Content-Disposition: attachment header still makes mail
+    # clients offer it as a downloadable file rather than only inlining
+    # it, alongside the body copy above.
+    attachment = MIMEText(attachment_html, "html", _charset="utf-8")
     attachment.add_header(
         "Content-Disposition", "attachment", filename=attachment_filename
     )
