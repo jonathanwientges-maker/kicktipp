@@ -19,7 +19,7 @@ import numpy as np
 import config
 
 
-def _tendency(h, a):
+def tendency(h, a):
     if h > a:
         return "H"
     if h < a:
@@ -55,7 +55,7 @@ def compute_ev_grid(grid, max_sum=8):
             p_exact = grid[h, a]
             d = h - a
             p_gd = gd_prob[d]
-            tend = _tendency(h, a)
+            tend = tendency(h, a)
             p_tend = tendency_prob[tend]
 
             score = (
@@ -124,6 +124,6 @@ def score_tip(tip, result):
         return config.POINTS_EXACT
     if (th - ta) == (rh - ra):
         return config.POINTS_GOALDIFF
-    if _tendency(th, ta) == _tendency(rh, ra):
+    if tendency(th, ta) == tendency(rh, ra):
         return config.POINTS_TENDENCY
     return config.POINTS_WRONG

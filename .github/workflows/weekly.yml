@@ -1,0 +1,48 @@
+name: weekly
+
+on:
+  schedule:
+    # Fri 17:30 UK / 18:30 CET, ahead of the 20:30 CET Friday kickoff.
+    - cron: "30 16 * * 5"
+    # Tue 13:30 UK, for midweek rounds.
+    - cron: "30 12 * * 2"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kicktipp-weekly
+  cancel-in-progress: false
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run weekly prediction
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python -m src.predict
+
+      - name: Commit data + report
+        if: always()
+        run: |
+          git config user.name "kicktipp-bot"
+          git config user.email "kicktipp-bot@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "weekly: predictions + report [skip ci]"
+          git push

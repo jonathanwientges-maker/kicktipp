@@ -35,6 +35,7 @@ UNDERSTAT_TO_FD = {
     "Greuther Fuerth": "Greuther Furth",
     "FC Heidenheim": "Heidenheim",
     "St. Pauli": "St Pauli",
+    "Nuernberg": "Nurnberg",
 }
 
 

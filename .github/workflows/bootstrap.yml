@@ -1,0 +1,44 @@
+name: bootstrap
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kicktipp-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ingest seed data
+        run: python -m src.ingest_seed
+
+      - name: Scrape gap seasons (Understat 2024/2025 + D1 2024/2025 + all D2)
+        run: python -m src.bootstrap_gap
+
+      - name: Run historical backtest
+        run: python -m src.backtest
+
+      - name: Commit data + tuned state + backtest report
+        run: |
+          git config user.name "kicktipp-bot"
+          git config user.email "kicktipp-bot@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "bootstrap: historical data + backtest [skip ci]"
+          git push

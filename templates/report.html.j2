@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kicktipp Matchday {{ matchday_number }} Report</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1a202c;
+    --muted: #5a6472;
+    --accent: #185FA5;
+    --accent-bg: #eaf2fa;
+    --warn: #c0392b;
+    --warn-bg: #fdecea;
+    --border: #e2e6ea;
+    --card-bg: #fafbfc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 48px 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 16px; }
+  header.top { background: var(--card-bg); border-bottom: 1px solid var(--border); padding: 20px 0; margin-bottom: 24px; }
+  header.top h1 { margin: 0 0 4px 0; font-size: 1.4rem; }
+  .meta-line { color: var(--muted); font-size: 0.9rem; }
+  .warning-banner {
+    background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn);
+    border-radius: 6px; padding: 12px 16px; margin: 12px 0; font-size: 0.92rem;
+  }
+  .warning-banner strong { display: block; margin-bottom: 4px; }
+
+  h2.section-title {
+    font-size: 1.1rem; margin: 32px 0 12px 0; padding-bottom: 6px;
+    border-bottom: 2px solid var(--accent);
+  }
+
+  table.tip-summary { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.tip-summary th, table.tip-summary td {
+    text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: 0.92rem;
+  }
+  table.tip-summary th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+  .tip-value { font-size: 1.3rem; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .close-call { color: var(--warn); font-weight: 600; }
+  .runner-up-note { font-size: 0.78rem; color: var(--muted); }
+
+  .match-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; background: var(--card-bg);
+  }
+  .match-card h3 { margin: 0 0 4px 0; font-size: 1.05rem; }
+  .match-card .kickoff { color: var(--muted); font-size: 0.85rem; margin-bottom: 12px; }
+  .lambda-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted); margin: 8px 0 4px 0; }
+  .lambda-row span.label { color: var(--text); font-weight: 600; }
+  .top5-list { list-style: none; padding: 0; margin: 8px 0; font-size: 0.85rem; }
+  .top5-list li { display: flex; justify-content: space-between; padding: 3px 0; }
+  .ev-bar-track { background: var(--border); border-radius: 3px; height: 6px; flex: 1; margin: 0 10px; overflow: hidden; }
+  .ev-bar-fill { background: var(--accent); height: 100%; }
+
+  .grid-container { overflow-x: auto; margin: 8px 0; }
+
+  footer.report-footer {
+    margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border);
+    font-size: 0.78rem; color: var(--muted);
+  }
+
+  @media (max-width: 480px) {
+    table.tip-summary th:nth-child(4), table.tip-summary td:nth-child(4) { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>⚽ Bundesliga Kicktipp — Matchday {{ matchday_number }}</h1>
+  <div class="meta-line">Generated {{ generated_at }} &middot; Latest Understat match: {{ latest_understat_date }} &middot; Odds file: {{ odds_file_date }}</div>
+</header>
+
+{% if warnings %}
+<div class="warning-banner">
+  <strong>⚠ Data quality warnings</strong>
+  <ul style="margin:4px 0 0 18px; padding:0;">
+  {% for w in warnings %}
+    <li>{{ w }}</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<h2 class="section-title">Tip summary</h2>
+<table class="tip-summary">
+  <thead>
+    <tr><th>Fixture</th><th>Kickoff (CET)</th><th>Tip</th><th>EV</th></tr>
+  </thead>
+  <tbody>
+  {% for m in matches %}
+    <tr>
+      <td>{{ m.home_team }} vs {{ m.away_team }}</td>
+      <td>{{ m.kickoff_cet }}</td>
+      <td>
+        <span class="tip-value">{{ m.tip_h }}-{{ m.tip_a }}</span>
+        {% if m.close_call %}
+          <div class="close-call">⚠ close call &mdash; runner-up {{ m.runner_up_h }}-{{ m.runner_up_a }} (EV {{ "%.2f"|format(m.runner_up_ev) }})</div>
+        {% endif %}
+      </td>
+      <td>{{ "%.2f"|format(m.ev) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="section-title">Match details</h2>
+{% for m in matches %}
+<div class="match-card">
+  <h3>{{ m.home_team }} vs {{ m.away_team }}</h3>
+  <div class="kickoff">Kickoff {{ m.kickoff_cet }} CET</div>
+
+  <div class="lambda-row">
+    <div><span class="label">Market λ:</span> {{ "%.2f"|format(m.lam_market_h) }} / {{ "%.2f"|format(m.lam_market_a) }}</div>
+    <div><span class="label">xG λ:</span> {{ "%.2f"|format(m.lam_xg_h) }} / {{ "%.2f"|format(m.lam_xg_a) }}</div>
+    <div><span class="label">DC λ:</span> {{ "%.2f"|format(m.lam_dc_h) }} / {{ "%.2f"|format(m.lam_dc_a) }}</div>
+  </div>
+
+  <div class="lambda-row">
+    <div><span class="label">Model P(H/D/A):</span> {{ "%.0f"|format(m.p_home*100) }}% / {{ "%.0f"|format(m.p_draw*100) }}% / {{ "%.0f"|format(m.p_away*100) }}%</div>
+    {% if m.mkt_p_home is not none %}
+    <div><span class="label">Market P(H/D/A):</span> {{ "%.0f"|format(m.mkt_p_home*100) }}% / {{ "%.0f"|format(m.mkt_p_draw*100) }}% / {{ "%.0f"|format(m.mkt_p_away*100) }}%</div>
+    {% endif %}
+  </div>
+
+  <div class="grid-container">
+    {{ m.heatmap_div | safe }}
+  </div>
+
+  <ul class="top5-list">
+  {% for t in m.top5 %}
+    <li>
+      <span>{{ t.h }}-{{ t.a }}</span>
+      <span class="ev-bar-track"><span class="ev-bar-fill" style="width: {{ t.bar_pct }}%"></span></span>
+      <span>{{ "%.2f"|format(t.ev) }}</span>
+    </li>
+  {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+
+<h2 class="section-title">Season tracker</h2>
+<div class="grid-container">
+  {{ season_tracker_div | safe }}
+</div>
+<table class="tip-summary">
+  <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Matchdays played</td><td>{{ season_stats.matchdays }}</td></tr>
+    <tr><td>Points per matchday (model)</td><td>{{ "%.2f"|format(season_stats.points_per_matchday) }}</td></tr>
+    <tr><td>Exact-score hits</td><td>{{ season_stats.exact_hits }}</td></tr>
+    <tr><td>GD hits</td><td>{{ season_stats.gd_hits }}</td></tr>
+  </tbody>
+</table>
+
+<footer class="report-footer">
+  Tuned parameters: halflife={{ tuned_params.halflife }}, use_negbin={{ tuned_params.use_negbin }},
+  weights(market/xG/DC)={{ tuned_params.weights }} &middot; commit {{ git_commit_hash }}
+</footer>
+
+</div>
+</body>
+</html>

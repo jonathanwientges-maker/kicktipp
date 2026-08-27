@@ -1,0 +1,96 @@
+"""
+Unit tests for backtest.py helper functions that don't require running
+the full rolling-origin backtest (that is exercised separately via
+`python -m src.backtest`, which is expensive and covered by Acceptance C
+manually / in CI on demand, not on every test run).
+"""
+import numpy as np
+import pandas as pd
+import pytest
+
+from src import backtest
+
+
+def test_rps_1x2_perfect_prediction_is_zero():
+    """A grid with probability 1 on the correct tendency's cells anywhere
+    within the correct third scores RPS 0 only when it's a point mass
+    that also gets the cumulative buckets right; sanity check RPS is 0
+    for a maximally confident correct call."""
+    grid = np.zeros((11, 11))
+    grid[2, 0] = 1.0  # certain 2-0 (home win)
+    rps = backtest.rps_1x2(grid, (2, 0))
+    assert rps == pytest.approx(0.0, abs=1e-9)
+
+
+def test_rps_1x2_worse_for_confident_wrong_call():
+    grid_right = np.zeros((11, 11))
+    grid_right[2, 0] = 1.0
+    grid_wrong = np.zeros((11, 11))
+    grid_wrong[0, 2] = 1.0  # certain away win, but result is home win
+
+    rps_right = backtest.rps_1x2(grid_right, (2, 0))
+    rps_wrong = backtest.rps_1x2(grid_wrong, (2, 0))
+    assert rps_wrong > rps_right
+
+
+def test_modal_score_picks_argmax_cell():
+    grid = np.zeros((6, 6))
+    grid[1, 1] = 0.3
+    grid[2, 1] = 0.5
+    grid[0, 0] = 0.2
+    assert backtest.modal_score(grid) == (2, 1)
+
+
+def test_market_grid_from_lambdas_falls_back_on_nan():
+    grid_nan = backtest.market_grid_from_lambdas(float("nan"), float("nan"))
+    grid_fallback = backtest._poisson_grid(*__import__("config").FALLBACK_LAMBDAS)
+    assert np.allclose(grid_nan, grid_fallback)
+
+
+def _synthetic_lambda_table(n=6, halflife=365):
+    """A tiny synthetic lambda-table slice with the exact columns
+    tune_hyperparams_from_table expects, so the tuning search can be
+    exercised without needing a real DC fit / full lambda_table build."""
+    rng = np.random.RandomState(3)
+    rows = []
+    for i in range(n):
+        rows.append({
+            "match_id": i, "season": 2016,
+            "home_goals": 2, "away_goals": 0,  # deterministic home wins
+            "lam_market_h": 1.1, "lam_market_a": 1.1,  # uninformative
+            "lam_xg_h": 1.1, "lam_xg_a": 1.1,           # uninformative
+            "lam_dc_h_{0}".format(halflife): 2.2, "lam_dc_a_{0}".format(halflife): 0.3,  # informative
+            "rho_{0}".format(halflife): 0.0,
+        })
+    df = pd.DataFrame(rows)
+    # Fill the OTHER halflife columns as all-NaN so dropna() in the tuning
+    # loop correctly skips them (mirrors a real table's shape).
+    import config
+    for hl in config.DC_HALFLIFE_GRID:
+        for col in ("lam_dc_h_{0}".format(hl), "lam_dc_a_{0}".format(hl), "rho_{0}".format(hl)):
+            if col not in df.columns:
+                df[col] = np.nan
+    return df
+
+
+def test_tune_hyperparams_from_table_prefers_informative_dc_signal():
+    """With market/xG lambdas deliberately uninformative (near 1-1, i.e.
+    poor at predicting the actual 2-0 results) and DC lambdas that
+    exactly match the true result pattern, the weight search should place
+    most weight on DC."""
+    import config
+    df = _synthetic_lambda_table(n=8, halflife=config.DC_HALFLIFE_GRID[0])
+    best = backtest.tune_hyperparams_from_table(df)
+    assert best["halflife"] == config.DC_HALFLIFE_GRID[0]
+    w_m, w_x, w_d = best["weights"]
+    assert w_d >= w_m and w_d >= w_x
+
+
+def test_tune_hyperparams_from_table_returns_valid_weights():
+    import config
+    df = _synthetic_lambda_table(n=5, halflife=config.DC_HALFLIFE_GRID[1])
+    best = backtest.tune_hyperparams_from_table(df)
+    assert best is not None
+    assert abs(sum(best["weights"]) - 1.0) < 1e-9
+    assert best["halflife"] in config.DC_HALFLIFE_GRID
+    assert isinstance(best["use_negbin"], bool)
