@@ -177,6 +177,20 @@ def tune_hyperparams_from_table(tuning_df):
         rho = sub[r_col].to_numpy(dtype=float)
         results = list(zip(sub["home_goals"].astype(int), sub["away_goals"].astype(int)))
 
+        # lam_xg is NaN for matches in a team's rolling-window warmup
+        # (most commonly a newly-promoted team's first same-venue
+        # matches -- see features.py). blend_log_lambda's weighted-log
+        # blend does NOT treat a 0-weight NaN term as harmless: 0.0 *
+        # log(nan) = nan in IEEE arithmetic, so an unguarded NaN here
+        # (unlike lam_market, which is separately renormalised away when
+        # missing) silently poisons the blended lambda even at weight
+        # combos that assign lam_xg zero weight. Substitute the
+        # configured fallback wherever it's missing, exactly as the main
+        # per-season evaluation loop below already does.
+        xg_nan_mask = np.isnan(lam_xg[:, 0]) | np.isnan(lam_xg[:, 1])
+        if xg_nan_mask.any():
+            lam_xg[xg_nan_mask] = config.FALLBACK_LAMBDAS
+
         for use_negbin in (False, True):
             dispersion = (0.05, 0.05) if use_negbin else None
             for weights in weight_combos:

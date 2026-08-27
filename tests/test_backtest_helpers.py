@@ -94,3 +94,37 @@ def test_tune_hyperparams_from_table_returns_valid_weights():
     assert abs(sum(best["weights"]) - 1.0) < 1e-9
     assert best["halflife"] in config.DC_HALFLIFE_GRID
     assert isinstance(best["use_negbin"], bool)
+
+
+def test_tune_hyperparams_from_table_survives_nan_lam_xg_at_zero_weight():
+    """Regression guard: a real bug found while running the full backtest
+    -- a row with lam_xg_h/a = NaN (a promoted team's rolling-window
+    warmup period, see features.py) crashed build_final_grid's sum-to-1
+    assertion at the weight-search vertex (0, 0, 1) where lam_xg gets
+    ZERO weight. The naive expectation "0 * NaN contributes nothing" is
+    false in IEEE arithmetic (0.0 * nan = nan, not 0.0), so an unguarded
+    NaN silently poisons the blended lambda even when its weight is
+    exactly zero. tune_hyperparams_from_table must substitute
+    config.FALLBACK_LAMBDAS for any NaN lam_xg row before blending, same
+    as the main per-season evaluation loop already does."""
+    import config
+
+    halflife = config.DC_HALFLIFE_GRID[0]
+    rows = [
+        {
+            "match_id": 1, "season": 2016, "home_goals": 2, "away_goals": 0,
+            "lam_market_h": 1.4, "lam_market_a": 1.1,
+            "lam_xg_h": np.nan, "lam_xg_a": np.nan,  # promoted-team warmup gap
+            "lam_dc_h_{0}".format(halflife): 1.6, "lam_dc_a_{0}".format(halflife): 0.9,
+            "rho_{0}".format(halflife): -0.05,
+        },
+    ]
+    df = pd.DataFrame(rows)
+    for hl in config.DC_HALFLIFE_GRID:
+        for col in ("lam_dc_h_{0}".format(hl), "lam_dc_a_{0}".format(hl), "rho_{0}".format(hl)):
+            if col not in df.columns:
+                df[col] = np.nan
+
+    # Must not raise (this is exactly what crashed the real backtest run).
+    best = backtest.tune_hyperparams_from_table(df)
+    assert best is not None
