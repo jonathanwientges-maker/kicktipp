@@ -41,13 +41,39 @@ def _season_to_yy_pair(season):
     return "{0:02d}{1:02d}".format(yy1, yy2)
 
 
-def _fetch_csv_text(url):
+def _fetch_csv_bytes(url):
+    """
+    Returns the response body as RAW BYTES (not requests' auto-decoded
+    .text). fixtures.csv is served with a UTF-8 BOM (b'\\xef\\xbb\\xbf')
+    prefixed to the content; requests' .text decodes those bytes but
+    does NOT strip the BOM, leaving it as three literal mojibake
+    characters ('\\ufeff' rendered as "ï»¿") baked into the returned
+    string. Re-encoding that already-decoded string can't recover the
+    original BOM byte sequence, so downstream BOM-aware decoding
+    (encoding="utf-8-sig") only works if it operates on these original
+    bytes, not on .text. Callers must decode via _read_csv_bytes, not a
+    plain .decode("utf-8").
+    """
     last_err = None
     for attempt in range(_RETRIES):
         try:
             resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
             resp.raise_for_status()
-            return resp.text
+            # raise_for_status() only raises on 4xx/5xx -- football-data.co.uk
+            # returns a 300 Multiple Choices HTML "did you mean...?" page
+            # (not a CSV, and not a 4xx/5xx) when a season's file doesn't
+            # exist yet at the expected path (observed for a just-started
+            # season whose D1.csv hadn't been published yet, while D2.csv
+            # for the same season already existed). Silently handing that
+            # HTML to pd.read_csv produces a confusing "Error tokenizing
+            # data" exception instead of a clear "this file isn't
+            # available" one -- require a plain 200 explicitly.
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    "Unexpected HTTP {0} for {1} (expected 200) -- the file may "
+                    "not be published yet.".format(resp.status_code, url)
+                )
+            return resp.content
         except Exception as exc:  # noqa: BLE001 - deliberate broad retry
             last_err = exc
             if attempt < _RETRIES - 1:
@@ -55,6 +81,22 @@ def _fetch_csv_text(url):
     raise RuntimeError(
         "Failed to fetch {0} after {1} retries: {2}".format(url, _RETRIES, last_err)
     )
+
+
+def _read_csv_bytes(raw_bytes):
+    """
+    Parse CSV raw bytes from football-data.co.uk. fixtures.csv (and
+    possibly other files) is served with a UTF-8 BOM prefix -- pandas
+    leaves that BOM attached to the first column's name if not told
+    about it (producing a literal '\\ufeffDiv' column instead of 'Div',
+    which silently breaks any df["Div"] lookup with a KeyError that
+    doesn't obviously point at the real cause). utf-8-sig strips a
+    leading BOM if present and is a no-op otherwise, so this is always
+    safe to use -- but it MUST be given the original bytes (see
+    _fetch_csv_bytes's docstring for why passing an already-.text-decoded
+    string doesn't work).
+    """
+    return pd.read_csv(io.BytesIO(raw_bytes), encoding="utf-8-sig")
 
 
 def download_division_csv(season, division):
@@ -65,8 +107,8 @@ def download_division_csv(season, division):
     """
     yy = _season_to_yy_pair(season)
     url = "{0}/mmz4281/{1}/{2}.csv".format(config.FD_BASE, yy, division)
-    text = _fetch_csv_text(url)
-    df = pd.read_csv(io.StringIO(text))
+    raw_bytes = _fetch_csv_bytes(url)
+    df = _read_csv_bytes(raw_bytes)
     df = harmonise_odds_columns(df)
     df["season"] = season
     df["division"] = division
@@ -80,8 +122,8 @@ def download_fixtures_csv():
     fixtures AND their pre-match odds.
     """
     url = "{0}/fixtures.csv".format(config.FD_BASE)
-    text = _fetch_csv_text(url)
-    df = pd.read_csv(io.StringIO(text))
+    raw_bytes = _fetch_csv_bytes(url)
+    df = _read_csv_bytes(raw_bytes)
     df = df[df["Div"] == "D1"].copy()
     df = harmonise_odds_columns(df)
     return df
@@ -136,7 +178,7 @@ def select_feature_columns(df):
 def load_seed_odds_csv(path):
     """Load one of the pre-supplied data/seed/odds_cache/D1_YYYY.csv files
     and apply the same harmonisation as freshly downloaded files."""
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, encoding="utf-8-sig")
     df = harmonise_odds_columns(df)
     return df
 
