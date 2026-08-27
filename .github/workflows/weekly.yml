@@ -2,9 +2,14 @@ name: weekly
 
 on:
   schedule:
-    # Fri 17:30 UK / 18:30 CET, ahead of the 20:30 CET Friday kickoff.
+    # Fri 16:30 UTC -- fixed UTC, so DOES NOT shift for German DST:
+    # 18:30 local (CEST, Aug-late Oct) or 17:30 local (CET, late Oct-Aug)
+    # ahead of a typical 20:30 local Friday kickoff. 2-3h buffer either
+    # way; left un-DST-adjusted deliberately (predict.py's 8-day fixture
+    # window absorbs the difference -- see data/reports/diagnosis.md-style
+    # notes in memory for the decision).
     - cron: "30 16 * * 5"
-    # Tue 13:30 UK, for midweek rounds.
+    # Tue 12:30 UTC -- 14:30 CEST / 13:30 CET, for midweek rounds.
     - cron: "30 12 * * 2"
   workflow_dispatch: {}
 
