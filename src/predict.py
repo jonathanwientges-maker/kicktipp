@@ -236,12 +236,62 @@ def team_rolling_lambda_for_fixture(home_fd, away_fd, xg_enriched, known_fd_name
     return float(lam_h), float(lam_a)
 
 
+def kickoff_timestamps(fixtures_df, date_col="Date", time_col="Time"):
+    """
+    Combine fixtures.csv's separate Date and Time columns into a single
+    kickoff timestamp, in GERMAN LOCAL TIME (Europe/Berlin), returned
+    tz-naive in that same local frame.
+
+    Why this exists: fixtures.csv splits kickoff into `Date` (dd/mm/yyyy)
+    and `Time` (HH:MM local). parse_date_column() only parses the date
+    part, so a fixture's timestamp lands at 00:00 of its matchday. If
+    that is compared against "now" to find upcoming matches, EVERY
+    same-day fixture is dropped the moment the clock passes midnight --
+    the Friday-evening game is invisible to a Friday-afternoon run, which
+    is exactly the match the Friday cron exists to cover. Observed live:
+    a run at 20:04 local excluded a 19:30 kickoff still 30 minutes away,
+    because it compared against that day's midnight.
+
+    A missing/unparseable Time is treated as 23:59 on the matchday --
+    deliberately the END of the day, so an unknown kickoff time keeps the
+    fixture in the upcoming window all day rather than silently dropping
+    it (a tip published slightly late is recoverable; a tip never
+    published is not).
+    """
+    dates = pd.to_datetime(fixtures_df[date_col])
+    times = fixtures_df[time_col] if time_col in fixtures_df.columns else None
+
+    kickoffs = []
+    for i, date_val in enumerate(dates):
+        if pd.isna(date_val):
+            kickoffs.append(pd.NaT)
+            continue
+        raw_time = times.iloc[i] if times is not None else None
+        parsed = pd.to_datetime(str(raw_time), format="%H:%M", errors="coerce") \
+            if raw_time is not None and not pd.isna(raw_time) else pd.NaT
+        if pd.isna(parsed):
+            kickoffs.append(pd.Timestamp(date_val).normalize() + pd.Timedelta(hours=23, minutes=59))
+        else:
+            kickoffs.append(
+                pd.Timestamp(date_val).normalize()
+                + pd.Timedelta(hours=int(parsed.hour), minutes=int(parsed.minute))
+            )
+    return pd.Series(kickoffs, index=fixtures_df.index)
+
+
 def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned, warnings):
-    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    # Compare like with like: fixtures.csv kickoff times are German local
+    # (CET/CEST), so "now" must be German local too -- a UTC "now" would
+    # be 1-2h off and drop fixtures that are still upcoming (or keep ones
+    # already played).
+    now = pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None)
     window_end = now + timedelta(days=FIXTURE_WINDOW_DAYS)
 
+    fixtures_df = fixtures_df.copy()
+    fixtures_df["kickoff_ts"] = kickoff_timestamps(fixtures_df)
+
     upcoming = fixtures_df[
-        (fixtures_df["Date"] >= now) & (fixtures_df["Date"] <= window_end)
+        (fixtures_df["kickoff_ts"] >= now) & (fixtures_df["kickoff_ts"] <= window_end)
     ].copy()
 
     # The set of football-data-side names we can resolve a fixture
