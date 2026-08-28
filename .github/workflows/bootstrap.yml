@@ -32,13 +32,47 @@ jobs:
       - name: Scrape gap seasons (Understat 2024/2025 + D1 2024/2025 + all D2)
         run: python -m src.bootstrap_gap
 
-      - name: Run historical backtest
-        run: python -m src.backtest
-
-      - name: Commit data + tuned state + backtest report
+      # Checkpoint 1: commit the scraped data before the slow backtest
+      # phase starts. This is the throttled, network-bound part
+      # (2s/request across hundreds of matches) -- if a later step times
+      # out or fails, a re-run of this workflow will find this data
+      # already in the repo and skip straight past the scrape instead of
+      # redoing it from scratch.
+      - name: Commit scraped data (checkpoint before the slow backtest)
         run: |
           git config user.name "kicktipp-bot"
           git config user.email "kicktipp-bot@users.noreply.github.com"
           git add data/
-          git diff --cached --quiet || git commit -m "bootstrap: historical data + backtest [skip ci]"
+          git diff --cached --quiet || git commit -m "bootstrap: scraped historical data [skip ci]"
+          git push
+
+      # Checkpoint 2: build (or, on a re-run, load) the precomputed
+      # lambda table and commit it separately. This is the single most
+      # expensive step in the whole backtest (sequential warm-started
+      # Dixon-Coles fits across ~1150 matchdays x 3 half-lives) --
+      # build_lambda_table() caches its result keyed by a config hash
+      # (see src/lambda_table.py), so committing it here means a re-run
+      # after a timeout in the season-by-season tuning loop below will
+      # load this cached table instantly instead of rebuilding it.
+      - name: Build lambda table (checkpoint before per-season tuning)
+        run: python -m src.lambda_table
+
+      - name: Commit lambda table
+        run: |
+          git config user.name "kicktipp-bot"
+          git config user.email "kicktipp-bot@users.noreply.github.com"
+          git add data/state/lambda_table.parquet data/state/lambda_table_meta.json
+          git diff --cached --quiet || git commit -m "bootstrap: precomputed lambda table [skip ci]"
+          git push
+
+      - name: Run historical backtest
+        run: python -m src.backtest
+
+      - name: Commit tuned state + backtest report
+        if: always()
+        run: |
+          git config user.name "kicktipp-bot"
+          git config user.email "kicktipp-bot@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "bootstrap: backtest results + tuned state [skip ci]"
           git push
