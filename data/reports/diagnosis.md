@@ -428,3 +428,78 @@ edge over the market itself should be treated as directionally
 encouraging but not yet statistically established — the win over the
 *old* tuning approach and over the *naive fixed-weight* alternatives is
 the more solid, better-evidenced part of this result.
+
+---
+
+# 9-Season Extension (2017–2025) — the CI caveat plays out
+
+After the T-FIX round above, seasons 2024/2025 were scraped (F5,
+previously blocked by the Understat site restructure, since fixed) and
+the backtest was re-run end-to-end on the full 2014–2025 dataset, using
+the same pooled+constrained tuning method (F1/F2/F3/F4) as (b) above —
+not a separate tuning approach, just two more predicted seasons added to
+the same rolling-origin protocol.
+
+## Per-season points, 9 seasons
+
+| Season | Model | Always-2-1 | Market modal | Market-EV |
+|---|---|---|---|---|
+| 2017 | 407 | 366 | 405 | 406 |
+| 2018 | 404 | 348 | 393 | 404 |
+| 2019 | 405 | 322 | 351 | 406 |
+| 2020 | 394 | 344 | 455 | 398 |
+| 2021 | 392 | 379 | 402 | 383 |
+| 2022 | 403 | 368 | 342 | 401 |
+| 2023 | 419 | 338 | 430 | 414 |
+| **2024** | **391** | 299 | 330 | **414** |
+| **2025** | **426** | 352 | 370 | **416** |
+| **Total** | **3641** | **3116** | **3478** | **3642** |
+
+## What changed versus the 7-season T-FIX result
+
+| | 7 seasons (2017–2023) | 9 seasons (2017–2025) | Δ from the 2 new seasons |
+|---|---|---|---|
+| Model | 2824 | 3641 | +817 |
+| Market-EV | 2812 | 3642 | +830 |
+| **Model − Market-EV** | **+12** | **−1** | **−13** |
+
+The full-period model-vs-market-EV total flips from a nominal lead
+(+12) to an almost exact tie (−1, model now technically 1 point *behind*
+market-EV over 2754 matches). 2024 alone was a poor season for the model
+relative to market-EV (391 vs 414, −23); 2025 partially offset it (426
+vs 416, +10). Net effect of the extension: −13 relative to the market.
+
+**This is exactly the outcome the block-bootstrap CI (90% CI [−30, +54]
+on the 7-season edge) said was plausible** — the CI included zero
+precisely because two more seasons of real data landing anywhere in that
+range, including landing on "essentially zero," was well within what the
+7-season sample could support. The extension is not a new finding so
+much as a confirmation that the earlier statistical caveat was the
+correct way to read the result: the model's edge over the market was
+never established with confidence, and the 9-season number is consistent
+with "no real edge, noisy fluctuation around parity" as much as with
+"model is directionally slightly better."
+
+## What held up unchanged
+
+- Model vs. always-2-1: **3641 vs 3116 (+525)**, model wins in every one
+  of the 9 seasons. Larger margin than the 7-season comparison (+359) —
+  this part of the result got *more* solid, not less, with more data.
+- Model vs. market-modal: **3641 vs 3478 (+163)**, also strengthened
+  from the 7-season margin (+46).
+- The tuning method itself (F1 pooled/F2 constrained/F3 draw-margin/F4
+  promoted-prior) remains the best of the tested regimes at every step
+  of the rolling-origin walk — nothing in the 9-season run suggests
+  reverting to the old per-season-holdout approach, which is a separate
+  question from whether the *model overall* beats the market.
+
+## Final tuned parameters (what the live pipeline will use)
+
+From the season-2025 fit (pooled over all 11 available prior/contemporary
+seasons — 2014–2025 minus the 2 warmup years): `halflife=365 days`,
+`use_negbin=False`, `weights=(market=0.9, xG=0.0, DC=0.1)`,
+`draw_margin=0.04`. Notably `xG` weight is exactly 0 — consistent with
+the market dominating the blend once the search is properly regularized,
+and with the honest overall conclusion: this system's practical value is
+"clearly better than guessing, on par with the market," not "beats the
+market."

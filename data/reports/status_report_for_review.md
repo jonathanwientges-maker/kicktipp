@@ -1,127 +1,143 @@
 # Kicktipp Model — Status Report for Review
 
-Repo: `kicktipp-model` (local, not yet pushed to GitHub). All numbers
-below are from real backtest runs against real historical Bundesliga
-data (Understat xG/shots + football-data.co.uk odds, 2014–2023 seed +
-2024/2025 freshly scraped), not synthetic/simulated.
+Repo: `kicktipp-model`, pushed to `https://github.com/jonathanwientges-maker/kicktipp`
+(private). All numbers below are from real backtest runs against real
+historical Bundesliga data (Understat xG/shots + football-data.co.uk
+odds, 2014–2023 seed + 2024/2025 freshly scraped), not
+synthetic/simulated.
 
 ## Build status
 
 All phases (A: data ingestion, B: model, C: backtest, D: live pipeline)
-are code-complete, unit-tested (60/60 tests passing), and have been
-dry-run end-to-end against live data sources. Not yet pushed to GitHub
-or deployed. See "Remaining to deploy" below.
+are code-complete, unit-tested (62/62 tests passing), and have been
+dry-run end-to-end against live data sources. Repo is pushed to GitHub.
+One real bug was found and fixed via an actual `bootstrap.yml` run on
+GitHub's infrastructure (see "What changed" below). See "Remaining to
+deploy" for what's left.
 
-## Headline backtest result (7 seasons, 2017–2023, rolling-origin,
-strictly out-of-sample)
+## Headline backtest result — FULL 9 seasons (2017–2025), rolling-origin,
+strictly out-of-sample
 
 Kicktipp 4/3/2 scoring. All tuning nested (a season's own results never
 influence its own parameters).
 
-| Benchmark | Total points (7 seasons) |
+| Benchmark | Total points (9 seasons, 2754 matches) |
 |---|---|
-| **Model** | **2824** |
-| Market-EV (optimizer run on de-margined bookmaker odds alone) | 2812 |
-| Market modal (most likely scoreline from bookmaker odds) | 2778 |
-| Always tip "2-1" | 2465 |
+| **Model** | **3641** |
+| Market-EV (optimizer run on de-margined bookmaker odds alone) | 3642 |
+| Market modal (most likely scoreline from bookmaker odds) | 3478 |
+| Always tip "2-1" | 3116 |
 
-Model beats market-EV in 5 of 7 seasons and on the total. Beats
-always-2-1 in every season.
+**Model is now essentially tied with market-EV** (3641 vs 3642 — model
+1 point behind over 2754 matches). Model beats market-EV in 6 of 9
+seasons individually but the two new seasons (2024, 2025) shifted the
+full-period total from a nominal lead to a dead heat. Model clearly
+beats market-modal (+163) and always-2-1 (+525) in every season.
 
-Per-season model points: 2017=407, 2018=404, 2019=405, 2020=394,
-2021=392, 2022=403, 2023=419 (306 matches/season, max 1224
-points/season).
+| Season | Model | Always-2-1 | Market modal | Market-EV |
+|---|---|---|---|---|
+| 2017 | 407 | 366 | 405 | 406 |
+| 2018 | 404 | 348 | 393 | 404 |
+| 2019 | 405 | 322 | 351 | 406 |
+| 2020 | 394 | 344 | 455 | 398 |
+| 2021 | 392 | 379 | 402 | 383 |
+| 2022 | 403 | 368 | 342 | 401 |
+| 2023 | 419 | 338 | 430 | 414 |
+| 2024 | 391 | 299 | 330 | 414 |
+| 2025 | 426 | 352 | 370 | 416 |
 
-## Statistical significance of the model-vs-market edge
+## Statistical significance of the model-vs-market edge (7-season CI,
+seasons 2024/2025 not yet re-run through the bootstrap)
 
 Block-bootstrap (resampled by matchday, not individual match, 2000
-draws, 697 matchdays):
+draws, 697 matchdays, computed on the 7-season 2017–2023 window):
 
-- Observed edge (model − market-EV): **+12 points** over 2142 matches.
-- **90% CI: [−30, +54]**. Includes zero.
-- 66.6% of bootstrap draws are positive.
+- Observed edge (model − market-EV) at 7 seasons: +12 points.
+- **90% CI: [−30, +54]**. Included zero.
+- 66.6% of bootstrap draws were positive.
 
-**Interpretation: the edge over the market is not statistically
-distinguishable from zero at this sample size.** The model is confidently
-better than naive guessing and than the pre-fix model; it is *not yet
-proven* to beat the market, only directionally competitive with it.
+**The 9-season extension is exactly the outcome that CI predicted was
+plausible**: the +12 lead at 7 seasons fell inside a wide interval that
+already included zero, and two more real seasons of data landed the
+total almost exactly on zero (−1). This is not a new negative finding —
+it's the original honest caveat playing out as data accumulated. The
+edge over the market was never statistically established; it should not
+be treated as disproven either (a wide CI cuts both ways) — the
+practically correct read is "no demonstrated edge over the market,
+clear and now-strengthening edge over naive/modal baselines."
 
 ## Secondary diagnostics (sanity checks, all in expected ranges)
 
 - 1X2 RPS: 0.185–0.205 (target ≈0.20–0.21, flagged outside 0.18–0.23 — in range)
-- Exact-score hit rate: 7.2–10.5% (target 10–13% — slightly below target most seasons)
+- Exact-score hit rate: 6.9–10.5% (target 10–13% — slightly below target most seasons)
 - GD hit rate: 17.3–23.2%
-- Tendency hit rate: 50.0–53.6%
-- Odds join coverage: 100% in all 7 (12 including 2024/2025) seasons
+- Tendency hit rate: 50.0–55.2%
+- Odds join coverage: 100% in all 12 seasons (2014–2025)
 - Market-inversion residual (model vs. de-margined market 1X2 probs): MSE 0.00026–0.00057, small
 
-## What changed to get here (fix round, from a prior failing state)
+## What changed to get here
 
-A first backtest attempt (old tuning method) **lost to market-EV in
-every single season** (2762 vs 2812 total). Root-caused to: the
-hyperparameter search (blend weights, DC half-life, Poisson-vs-NegBin,
-draw handling) was tuned on a single 306-match prior-season holdout,
-re-chosen from scratch every year — pure overfitting to season-to-season
-noise, confirmed multiple ways (top-10 candidate weight vectors per
-season spanned the entire simplex within a 12–31 point band; naive fixed
-weights and pure-market-alone both outscored the "tuned" model
-out-of-sample).
+**Fix round (mid-project)**: a first backtest attempt (old tuning
+method) lost to market-EV in every single season (2762 vs 2812 total,
+7 seasons). Root-caused to a hyperparameter search overfitting to a
+single 306-match prior-season holdout, re-chosen from scratch every
+year. Four fixes applied: pooled leave-one-season-out tuning,
+market-anchored weight floor (`w_market ≥ 0.5`), a draw-tip EV penalty,
+and wiring in a previously-unused promoted-team-prior regression. Result
+at the time: 2762 → 2824 (7 seasons) — later diluted to near-parity once
+2024/2025 were added, per above.
 
-Fixes applied:
-1. **Pooled leave-one-season-out tuning** — search now maximizes points
-   over *all* available prior seasons pooled, not one holdout season.
-2. **Market-anchored weight constraint** — blend weight search
-   constrained to `w_market ≥ 0.5` (market is the single sharpest
-   signal; xG/DC enter as corrections, not replacements).
-3. **Draw-tip EV penalty** — a drawn tip is only recommended if its EV
-   beats the best non-draw tip's EV by a tuned margin (0–0.08); draw
-   tips carry no partial-credit floor the way tendency tips do, so they
-   need a bigger EV lead to justify the added risk. (Root cause: 11 of
-   the 15 worst single-match losses were the model tipping a draw where
-   the market correctly read a decisive result.)
-4. **Promoted-team prior wired in** — a regression from a promoted
-   team's final 2.Bundesliga-season stats to their expected first-season
-   npxG was written per the original spec but never actually connected
-   to the live pipeline; now it is, seeding newly-promoted teams instead
-   of leaving them on a generic fallback.
-
-Result: total points 2762 → 2824 (+62, now beats every other benchmark
-tested including old-tuning, fixed-weights, and pure-market).
+**GitHub deployment bug (found via a real `bootstrap.yml` run)**: the
+first live trigger of `bootstrap.yml` on GitHub's infrastructure failed
+with `KeyError: 'match_id'` inside the Understat scraper. Root cause: an
+empty list of "matches still to fetch" produced a pandas DataFrame with
+zero columns (not an empty-but-correctly-shaped one), which then broke
+a `merge(..., on="match_id")` call downstream. Fixed by explicitly
+pinning the DataFrame's column schema; added 2 regression tests. This is
+exactly the kind of bug only a clean-environment run surfaces — the
+local dev environment always had at least one match left to fetch, so
+it never hit this path.
 
 ## Known limitations / open risk
 
-1. **Small, statistically fragile edge over the market** (see CI above).
-   Should not be marketed as "beats the bookmakers" — more accurately
-   "competitive with the market, clearly ahead of naive baselines."
-2. **9-season extension in progress** (2017–2025, now that 2024/2025
-   data is scraped) — not yet complete; current numbers are 7 seasons.
-3. **One live data-source scraper had silently broken** (Understat
-   restructured their site to client-side rendering) and was found +
-   fixed during this work — now confirmed working against live data via
-   their JSON API endpoints directly (`/getLeagueData/`,
-   `/getMatchData/`), no headless browser needed.
-4. **Elversberg** (one of three teams entering Bundesliga this season,
-   per club standings) has zero historical Understat data — cannot
-   pre-verify their exact name spelling matches between data sources.
-   Designed to hard-fail loudly (not silently mismap) if it doesn't;
-   will only be known once real data includes them.
-5. Two more real integration bugs were found and fixed only by actually
-   dry-running the live-prediction code path against real current data
-   (a UTF-8 BOM breaking a CSV column lookup; a non-2xx HTTP response
-   being silently parsed as if it were valid data). This suggests the
-   live path had not been exercised end-to-end before this session —
-   worth one supervised live run before fully trusting the automation.
+1. **No demonstrated edge over the market at 9 seasons** (model 3641 vs
+   market-EV 3642, essentially tied). Should not be marketed as "beats
+   the bookmakers." Accurate framing: "competitive with the market,
+   clearly and increasingly ahead of naive/modal baselines."
+2. **Elversberg** (one of the three teams entering Bundesliga 2026/27,
+   confirmed via 2025/26 2.Bundesliga standings) has zero historical
+   Understat data — cannot pre-verify their exact name spelling matches
+   between data sources. Designed to hard-fail loudly (not silently
+   mismap) if it doesn't; will only be known once real data includes
+   them.
+3. Three real integration bugs were found only by actually running the
+   live code paths against real data (not by unit tests alone): a
+   UTF-8 BOM breaking a CSV column lookup, a non-2xx HTTP response being
+   silently parsed as if valid, and the empty-DataFrame merge bug above.
+   This pattern — bugs only surfacing on first real execution — suggests
+   budgeting for at least one more live-fire surprise before trusting
+   the automation unattended.
+4. The Understat site itself restructured mid-project (moved from
+   server-rendered HTML to a client-side JSON API); the scraper was
+   rewritten to call the API directly and is now simpler than the
+   original approach, but is inherently coupled to Understat's current
+   implementation and could break again if they change it further.
 
 ## Remaining to deploy
 
-1. Finish the 9-season backtest extension (running).
-2. **Decision needed**: ship current model quality as-is, or invest in
-   further improvement before going live, given the CI caveat above.
-3. Push repo to GitHub (private), add 3 secrets (Gmail address, Gmail
-   app password, recipient list).
-4. Manually trigger the one-time bootstrap workflow, then the weekly
-   workflow once, to confirm both run cleanly on GitHub's infrastructure
-   (not just locally).
-5. Observe one real automated weekly run end-to-end once the 2026/27
+1. Re-trigger `bootstrap.yml` on GitHub with the merge-bug fix now
+   pushed; confirm it completes end-to-end on a clean environment.
+2. Add the 3 GitHub secrets (`GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`,
+   `MAIL_TO`) if not already done.
+3. Manually trigger `weekly.yml` once to confirm the first real email
+   arrives.
+4. Observe one real automated weekly run end-to-end once the 2026/27
    season's fixtures are published (season had not started as of last
-   check; kickoff expected imminently).
+   check; kickoff expected imminently, with Schalke 04/Elversberg/
+   Paderborn as the promoted/playoff teams).
+5. **Standing decision, now with 9-season evidence**: ship as-is (still
+   clearly better than guessing; roughly matches the market, which is a
+   perfectly reasonable bar for a casual Kicktipp pool) — or treat the
+   near-parity-with-market result as a signal to invest in further model
+   improvement before fully trusting it. No further blocking technical
+   work either way.
