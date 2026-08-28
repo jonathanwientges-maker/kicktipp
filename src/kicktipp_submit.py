@@ -1,0 +1,478 @@
+"""
+Kicktipp auto-submission (optional weekly step).
+
+Logs into kicktipp.de with a plain requests.Session (no browser) and
+enters the model's tips into the community bet form. Deliberately narrow:
+it places the exact-score tip the model already computed, for upcoming
+matches only, and -- by default -- only where the form field is still
+blank.
+
+Safety model
+------------
+* OFF unless KICKTIPP_LIVE=1 is in the environment. Without it, the whole
+  flow runs (login, parse, decide) and returns a summary of what it WOULD
+  submit, but sends no POST. `dry_run=True` (predict.py --no-email) forces
+  the same.
+* Never touches a match within config.KICKTIPP_MIN_LEAD_HOURS of kickoff.
+* Fill-blanks-only (config.KICKTIPP_FILL_BLANKS_ONLY): a row that already
+  holds any value is left as-is -- a manual entry always wins.
+* Team names are matched Kicktipp-display -> football-data via
+  config.KICKTIPP_TEAM_ALIASES. An unmapped name is a HARD FAILURE
+  (KicktippSubmitError), never a silent skip -- a score entered against
+  the wrong fixture is worse than no score.
+* Caller (predict.py) invokes this AFTER the report email is sent and
+  wraps it in try/except: a submission failure must never cost the report.
+
+Form contract
+-------------
+Reverse-engineered from the long-standing kicktipp-betbot projects and
+stable for years:
+  * login:  POST {BASE}/info/profil/loginaction
+              kennung=<email>&passwort=<pw>&_charset_=UTF-8
+              &showLoginAdditionalOptions=
+            success = a 'login' cookie is set on the session.
+  * form :  GET  {BASE}/{community}/tippabgabe?&spieltagIndex=<md>
+            one <form> containing a row per match. Each row has two text
+            inputs named
+              spieltippForms[<gameId>].heimTipp
+              spieltippForms[<gameId>].gastTipp
+            plus hidden inputs (submit button name, csrf-ish tokens) that
+            must be echoed back verbatim.
+  * submit: POST to the form's `action` with every field: blanks we fill,
+            existing values preserved, hidden fields echoed.
+
+If Kicktipp changes the markup this module raises a clear
+KicktippSubmitError rather than silently posting garbage.
+"""
+import os
+import re
+import time
+
+import requests
+from bs4 import BeautifulSoup
+
+import config
+
+
+MAX_ATTEMPTS = 3
+RETRY_DELAY_S = 5
+TIMEOUT_S = 30
+
+_FIELD_RE = re.compile(r"spieltippForms\[(?P<gid>[^\]]+)\]\.(?P<side>heimTipp|gastTipp)")
+
+
+class KicktippSubmitError(Exception):
+    """A hard failure once submission was actually attempted (bad login,
+    changed markup, unmapped team). Surfaced as a report warning."""
+
+
+class KicktippNotConfigured(Exception):
+    """Credentials absent -- auto-submit is simply not set up yet. Not an
+    error; the caller logs it quietly and moves on."""
+
+
+# --------------------------------------------------------------------------
+# HTTP helpers
+# --------------------------------------------------------------------------
+def _new_session():
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        )
+    })
+    return s
+
+
+def _login(session, user, password):
+    url = "{0}/info/profil/loginaction".format(config.KICKTIPP_BASE)
+    payload = {
+        "kennung": user,
+        "passwort": password,
+        "_charset_": "UTF-8",
+        "showLoginAdditionalOptions": "",
+    }
+    last_err = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            resp = session.post(url, data=payload, timeout=TIMEOUT_S,
+                                allow_redirects=True)
+            resp.raise_for_status()
+            if session.cookies.get("login"):
+                return
+            last_err = RuntimeError(
+                "login POST returned {0} but no 'login' cookie was set "
+                "(bad credentials, or social-login-only account).".format(
+                    resp.status_code
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - deliberate broad retry
+            last_err = exc
+        if attempt < MAX_ATTEMPTS:
+            time.sleep(RETRY_DELAY_S)
+    raise KicktippSubmitError(
+        "Kicktipp login failed after {0} attempts: {1}".format(MAX_ATTEMPTS, last_err)
+    )
+
+
+def _fetch_form_page(session, matchday_index):
+    url = "{0}/{1}/tippabgabe".format(config.KICKTIPP_BASE, config.KICKTIPP_COMMUNITY)
+    params = {"spieltagIndex": matchday_index} if matchday_index is not None else {}
+    last_err = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            resp = session.get(url, params=params, timeout=TIMEOUT_S)
+            resp.raise_for_status()
+            if resp.status_code != 200:
+                raise RuntimeError("unexpected HTTP {0}".format(resp.status_code))
+            return resp.text
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(RETRY_DELAY_S)
+    raise KicktippSubmitError(
+        "Could not load Kicktipp bet form ({0}): {1}".format(url, last_err)
+    )
+
+
+# --------------------------------------------------------------------------
+# Parsing
+# --------------------------------------------------------------------------
+def _resolve_team(display_name):
+    """Kicktipp display name -> football-data name. Hard-fail if unmapped."""
+    name = (display_name or "").strip()
+    if name in config.KICKTIPP_TEAM_ALIASES:
+        return config.KICKTIPP_TEAM_ALIASES[name]
+    # tolerate a trailing "(H)"/"(A)" or extra whitespace some skins add
+    stripped = re.sub(r"\s*\([HA]\)\s*$", "", name).strip()
+    if stripped in config.KICKTIPP_TEAM_ALIASES:
+        return config.KICKTIPP_TEAM_ALIASES[stripped]
+    raise KicktippSubmitError(
+        "Kicktipp team name {0!r} is not in config.KICKTIPP_TEAM_ALIASES -- "
+        "add the mapping (see crosswalk.py philosophy: never guess).".format(name)
+    )
+
+
+def parse_bet_form(html):
+    """
+    Return (form_meta, rows).
+
+    form_meta = {"action": str, "hidden": {name: value, ...}}
+    rows = [
+      {
+        "game_id": str,
+        "home_fd": str, "away_fd": str,           # resolved football-data names
+        "home_display": str, "away_display": str,
+        "heim_field": str, "gast_field": str,     # exact input names to POST
+        "heim_value": str, "gast_value": str,     # current values ("" if blank)
+      }, ...
+    ]
+
+    Raises KicktippSubmitError if the expected structure is absent.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    form = None
+    for f in soup.find_all("form"):
+        if f.find("input", attrs={"name": _FIELD_RE}):
+            form = f
+            break
+    if form is None:
+        raise KicktippSubmitError(
+            "No bet form found on the Kicktipp page (no "
+            "spieltippForms[...].heimTipp inputs) -- markup may have changed, "
+            "or the matchday is not open for tipping."
+        )
+
+    action = form.get("action") or ""
+    if action.startswith("/"):
+        action = "{0}{1}".format(config.KICKTIPP_BASE, action)
+    elif not action.startswith("http"):
+        action = "{0}/{1}/{2}".format(
+            config.KICKTIPP_BASE, config.KICKTIPP_COMMUNITY, action
+        ).replace("//", "/").replace("https:/", "https://")
+
+    hidden = {}
+    for inp in form.find_all("input", attrs={"type": "hidden"}):
+        nm = inp.get("name")
+        if nm:
+            hidden[nm] = inp.get("value", "")
+
+    # Collect the per-game inputs, then pair heim+gast by game_id.
+    by_game = {}
+    for inp in form.find_all("input", attrs={"name": _FIELD_RE}):
+        m = _FIELD_RE.match(inp.get("name", ""))
+        if not m:
+            continue
+        gid = m.group("gid")
+        by_game.setdefault(gid, {})[m.group("side")] = {
+            "field": inp.get("name"),
+            "value": (inp.get("value") or "").strip(),
+        }
+
+    rows = []
+    for row_el in form.find_all("tr"):
+        inp = row_el.find("input", attrs={"name": _FIELD_RE})
+        if inp is None:
+            continue
+        m = _FIELD_RE.match(inp.get("name", ""))
+        gid = m.group("gid")
+        pair = by_game.get(gid, {})
+        if "heimTipp" not in pair or "gastTipp" not in pair:
+            raise KicktippSubmitError(
+                "Game {0} is missing one of heimTipp/gastTipp -- unexpected "
+                "form structure.".format(gid)
+            )
+
+        # Team names: Kicktipp renders them in cells of the same row,
+        # commonly class 'nowrap' with the home team before the score
+        # inputs and the away team after. Fall back to the first two
+        # non-empty text cells that are not the score inputs.
+        names = _row_team_names(row_el)
+        if len(names) < 2:
+            raise KicktippSubmitError(
+                "Could not read both team names for game {0} from its row.".format(gid)
+            )
+        home_display, away_display = names[0], names[1]
+
+        rows.append({
+            "game_id": gid,
+            "home_display": home_display,
+            "away_display": away_display,
+            "home_fd": _resolve_team(home_display),
+            "away_fd": _resolve_team(away_display),
+            "heim_field": pair["heimTipp"]["field"],
+            "gast_field": pair["gastTipp"]["field"],
+            "heim_value": pair["heimTipp"]["value"],
+            "gast_value": pair["gastTipp"]["value"],
+        })
+
+    if not rows:
+        raise KicktippSubmitError("Bet form parsed but yielded zero match rows.")
+
+    return {"action": action, "hidden": hidden}, rows
+
+
+def _row_team_names(row_el):
+    """Best-effort: ordered list of team-name strings in a form row."""
+    names = []
+    for cell in row_el.find_all(["td", "th"]):
+        if cell.find("input") is not None:
+            continue
+        text = cell.get_text(" ", strip=True)
+        if not text:
+            continue
+        # skip pure numbers / odds / kickoff times
+        if re.fullmatch(r"[\d.:,\s/\-]+", text):
+            continue
+        names.append(text)
+    return names
+
+
+# --------------------------------------------------------------------------
+# Decision + submission
+# --------------------------------------------------------------------------
+def _index_model_tips(match_contexts):
+    """(home_fd, away_fd) -> (tip_h, tip_a, kickoff_ts) from predict output."""
+    out = {}
+    for m in match_contexts:
+        out[(m["home_team"], m["away_team"])] = (
+            int(m["tip_h"]), int(m["tip_a"]), m.get("kickoff_ts"),
+        )
+    return out
+
+
+def _decide(rows, model_tips, now):
+    """
+    Split rows into actions. Returns dict of lists (see submit_tips summary).
+    `now` is a tz-naive pandas Timestamp in Europe/Berlin local time.
+    """
+    import pandas as pd  # local: keep module importable without pandas at parse time
+
+    min_lead = pd.Timedelta(hours=config.KICKTIPP_MIN_LEAD_HOURS)
+    to_place, skipped_existing, skipped_kickoff, unmatched = [], [], [], []
+
+    for row in rows:
+        key = (row["home_fd"], row["away_fd"])
+        if key not in model_tips:
+            unmatched.append("{0} vs {1} (no model tip)".format(*key))
+            continue
+        tip_h, tip_a, kickoff_ts = model_tips[key]
+
+        if config.KICKTIPP_FILL_BLANKS_ONLY and (row["heim_value"] or row["gast_value"]):
+            skipped_existing.append(
+                "{0} vs {1} (already {2}:{3})".format(
+                    key[0], key[1], row["heim_value"] or "-", row["gast_value"] or "-"
+                )
+            )
+            continue
+
+        if kickoff_ts is not None:
+            kt = pd.Timestamp(kickoff_ts)
+            if kt - now < min_lead:
+                skipped_kickoff.append(
+                    "{0} vs {1} (kickoff {2}, within {3}h)".format(
+                        key[0], key[1], kt, config.KICKTIPP_MIN_LEAD_HOURS
+                    )
+                )
+                continue
+
+        to_place.append({"row": row, "tip_h": tip_h, "tip_a": tip_a})
+
+    return {
+        "to_place": to_place,
+        "skipped_existing": skipped_existing,
+        "skipped_kickoff": skipped_kickoff,
+        "unmatched": unmatched,
+    }
+
+
+def _build_post_body(form_meta, rows, to_place):
+    """
+    Full form body: every field Kicktipp expects back. Existing values are
+    preserved; only the blank fields for `to_place` rows get filled.
+    """
+    body = dict(form_meta["hidden"])
+    place_ids = {p["row"]["game_id"]: p for p in to_place}
+    for row in rows:
+        p = place_ids.get(row["game_id"])
+        if p is not None:
+            body[row["heim_field"]] = str(p["tip_h"])
+            body[row["gast_field"]] = str(p["tip_a"])
+        else:
+            body[row["heim_field"]] = row["heim_value"]
+            body[row["gast_field"]] = row["gast_value"]
+    return body
+
+
+def _submit(session, action, body):
+    last_err = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            resp = session.post(action, data=body, timeout=TIMEOUT_S,
+                                allow_redirects=True)
+            resp.raise_for_status()
+            return resp.status_code
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            if attempt < MAX_ATTEMPTS:
+                time.sleep(RETRY_DELAY_S)
+    raise KicktippSubmitError(
+        "Kicktipp submit POST failed after {0} attempts: {1}".format(
+            MAX_ATTEMPTS, last_err
+        )
+    )
+
+
+# --------------------------------------------------------------------------
+# Public entrypoint
+# --------------------------------------------------------------------------
+def submit_tips(match_contexts, matchday_index, dry_run=False, live=None):
+    """
+    Enter the model's tips into the Kicktipp bet form.
+
+    match_contexts : list of predict.build_match_context dicts. Each needs
+                     home_team, away_team, tip_h, tip_a, and ideally
+                     kickoff_ts (DST-corrected, from predict.kickoff_timestamps).
+    matchday_index : Kicktipp spieltagIndex; None lets Kicktipp pick the
+                     currently-open matchday.
+    dry_run        : if True, never POST (predict.py --no-email path).
+    live           : override config.KICKTIPP_LIVE. If the effective value
+                     is False, behaves like dry_run but still logs in and
+                     parses so the summary is real.
+
+    Returns a summary dict:
+      {
+        "live": bool, "submitted": bool, "http_status": int|None,
+        "placed": [str, ...],            # "Home vs Away -> h:a"
+        "skipped_existing": [str, ...],
+        "skipped_kickoff": [str, ...],
+        "unmatched": [str, ...],
+      }
+
+    Raises KicktippSubmitError on any hard failure (login, missing form,
+    unmapped team name).
+    """
+    import pandas as pd
+
+    effective_live = config.KICKTIPP_LIVE if live is None else bool(live)
+    will_submit = effective_live and not dry_run
+
+    user = os.environ.get("KICKTIPP_USER")
+    password = os.environ.get("KICKTIPP_PASSWORD")
+    if not user or not password:
+        raise KicktippNotConfigured(
+            "KICKTIPP_USER / KICKTIPP_PASSWORD not set -- auto-submit skipped."
+        )
+    if config.KICKTIPP_COMMUNITY in ("", "CHANGEME"):
+        raise KicktippNotConfigured(
+            "config.KICKTIPP_COMMUNITY is not configured -- auto-submit skipped."
+        )
+
+    if not match_contexts:
+        return {
+            "live": effective_live, "submitted": False, "http_status": None,
+            "placed": [], "skipped_existing": [], "skipped_kickoff": [],
+            "unmatched": [], "note": "no fixtures to submit",
+        }
+
+    session = _new_session()
+    _login(session, user, password)
+
+    html = _fetch_form_page(session, matchday_index)
+    form_meta, rows = parse_bet_form(html)
+
+    model_tips = _index_model_tips(match_contexts)
+    now = pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None)
+    decision = _decide(rows, model_tips, now)
+
+    placed_labels = [
+        "{0} vs {1} -> {2}:{3}".format(
+            p["row"]["home_fd"], p["row"]["away_fd"], p["tip_h"], p["tip_a"]
+        )
+        for p in decision["to_place"]
+    ]
+
+    http_status = None
+    submitted = False
+    if decision["to_place"] and will_submit:
+        body = _build_post_body(form_meta, rows, decision["to_place"])
+        http_status = _submit(session, form_meta["action"], body)
+        submitted = True
+
+    return {
+        "live": effective_live,
+        "submitted": submitted,
+        "http_status": http_status,
+        "placed": placed_labels,
+        "skipped_existing": decision["skipped_existing"],
+        "skipped_kickoff": decision["skipped_kickoff"],
+        "unmatched": decision["unmatched"],
+    }
+
+
+def summary_lines(summary):
+    """Human-readable lines for the log and the email report."""
+    if summary.get("note") == "no fixtures to submit":
+        return ["Kicktipp: no fixtures to submit."]
+    mode = (
+        "LIVE, submitted" if summary["submitted"]
+        else ("LIVE, nothing to place" if summary["live"] else "DRY-RUN (KICKTIPP_LIVE not set)")
+    )
+    lines = ["Kicktipp auto-submit [{0}]:".format(mode)]
+    if summary["placed"]:
+        verb = "Placed" if summary["submitted"] else "Would place"
+        lines.append("  {0}: {1}".format(verb, "; ".join(summary["placed"])))
+    else:
+        lines.append("  Nothing to place.")
+    for label, key in (
+        ("Skipped (already filled)", "skipped_existing"),
+        ("Skipped (too close to kickoff)", "skipped_kickoff"),
+        ("Unmatched (no model tip)", "unmatched"),
+    ):
+        if summary[key]:
+            lines.append("  {0}: {1}".format(label, "; ".join(summary[key])))
+    if summary["http_status"] is not None:
+        lines.append("  HTTP {0}".format(summary["http_status"]))
+    return lines

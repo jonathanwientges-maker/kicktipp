@@ -145,5 +145,94 @@ POINTS_GOALDIFF = 3
 POINTS_TENDENCY = 2
 POINTS_WRONG = 0
 
+# ---------------------------------------------------------------------------
+# Kicktipp auto-submission (src/kicktipp_submit.py)
+#
+# The weekly run can log into kicktipp.de and enter the model's tips into
+# the bet form automatically. Credentials come from the environment
+# (KICKTIPP_USER / KICKTIPP_PASSWORD), like the Gmail ones -- never
+# committed. Submission is OFF unless KICKTIPP_LIVE=1 is set in the
+# environment: without it the module runs a full dry-run (login, parse,
+# decide) and reports what it WOULD place, but sends no POST. This is the
+# master safety switch -- set the KICKTIPP_LIVE secret only once the
+# dry-run output has been checked against manual entry.
+# ---------------------------------------------------------------------------
+KICKTIPP_BASE = "https://www.kicktipp.de"
+KICKTIPP_COMMUNITY = "buli-challenge"   # community short-name in the URL path
+KICKTIPP_LIVE = os.environ.get("KICKTIPP_LIVE", "").strip() == "1"
+
+# Never place (or overwrite) a tip within this many hours of kickoff --
+# a late model run should not fight a manual entry made near the deadline.
+# Uses the DST-corrected kickoff timestamp from predict.kickoff_timestamps.
+KICKTIPP_MIN_LEAD_HOURS = 2
+
+# Fill-blanks-only: a match whose Kicktipp form already holds a value
+# (any manual or prior entry) is left untouched. Set False to let the
+# model overwrite its own earlier auto-entries (still never within
+# KICKTIPP_MIN_LEAD_HOURS, still not implemented as a hard overwrite of
+# manual edits -- see kicktipp_submit.py).
+KICKTIPP_FILL_BLANKS_ONLY = True
+
+# Kicktipp shows German short team names in the bet form; the model
+# works in football-data.co.uk names. This maps the Kicktipp display
+# name (as seen in the form's row cells) -> football-data name. Mirrors
+# crosswalk.py's philosophy: an unmapped name is a HARD FAILURE, never a
+# silent skip -- entering a score against the wrong fixture is worse
+# than entering nothing. Extend as Kicktipp's rendering or the league
+# roster changes.
+KICKTIPP_TEAM_ALIASES = {
+    "Bayern": "Bayern Munich",
+    "FC Bayern": "Bayern Munich",
+    "Bayern München": "Bayern Munich",
+    "Dortmund": "Dortmund",
+    "BVB": "Dortmund",
+    "Leverkusen": "Leverkusen",
+    "Bayer Leverkusen": "Leverkusen",
+    "Leipzig": "RB Leipzig",
+    "RB Leipzig": "RB Leipzig",
+    "Stuttgart": "Stuttgart",
+    "VfB Stuttgart": "Stuttgart",
+    "Frankfurt": "Ein Frankfurt",
+    "Eintracht Frankfurt": "Ein Frankfurt",
+    "Freiburg": "Freiburg",
+    "SC Freiburg": "Freiburg",
+    "Hoffenheim": "Hoffenheim",
+    "TSG Hoffenheim": "Hoffenheim",
+    "Mainz": "Mainz",
+    "Mainz 05": "Mainz",
+    "1. FSV Mainz 05": "Mainz",
+    "Wolfsburg": "Wolfsburg",
+    "VfL Wolfsburg": "Wolfsburg",
+    "M'gladbach": "M'gladbach",
+    "Gladbach": "M'gladbach",
+    "Bor. Mönchengladbach": "M'gladbach",
+    "Mönchengladbach": "M'gladbach",
+    "Werder": "Werder Bremen",
+    "Werder Bremen": "Werder Bremen",
+    "Bremen": "Werder Bremen",
+    "Union": "Union Berlin",
+    "Union Berlin": "Union Berlin",
+    "1. FC Union Berlin": "Union Berlin",
+    "Augsburg": "Augsburg",
+    "FC Augsburg": "Augsburg",
+    "Köln": "FC Koln",
+    "1. FC Köln": "FC Koln",
+    "Koln": "FC Koln",
+    "Heidenheim": "Heidenheim",
+    "1. FC Heidenheim": "Heidenheim",
+    "1. FC Heidenheim 1846": "Heidenheim",
+    "St. Pauli": "St Pauli",
+    "FC St. Pauli": "St Pauli",
+    "Hamburg": "Hamburg",
+    "Hamburger SV": "Hamburg",
+    "HSV": "Hamburg",
+    "Paderborn": "Paderborn",
+    "SC Paderborn": "Paderborn",
+    "SC Paderborn 07": "Paderborn",
+    "Elversberg": "Elversberg",
+    "SV Elversberg": "Elversberg",
+    "SV 07 Elversberg": "Elversberg",
+}
+
 # EV close-call flag threshold (Section 4, B5)
 CLOSE_CALL_EV_MARGIN = 0.03

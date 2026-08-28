@@ -49,6 +49,13 @@ jobs:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          # Kicktipp auto-submit. KICKTIPP_LIVE is the master switch:
+          # unset (or != "1") => full dry-run, logs what it WOULD place,
+          # sends no bets. Set the KICKTIPP_LIVE repo secret to "1" only
+          # after the dry-run output has been checked against manual entry.
+          KICKTIPP_USER: ${{ secrets.KICKTIPP_USER }}
+          KICKTIPP_PASSWORD: ${{ secrets.KICKTIPP_PASSWORD }}
+          KICKTIPP_LIVE: ${{ secrets.KICKTIPP_LIVE }}
         run: python -m src.predict
 
       - name: Commit data + report

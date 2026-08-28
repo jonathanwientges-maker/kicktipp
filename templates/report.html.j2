@@ -90,6 +90,17 @@
 </div>
 {% endif %}
 
+{% if kicktipp_lines %}
+<div class="warning-banner" style="background:#eef6ff; border-color:#9ac3ea;">
+  <strong>🤖 Kicktipp auto-submit</strong>
+  <ul style="margin:4px 0 0 18px; padding:0;">
+  {% for line in kicktipp_lines %}
+    <li>{{ line }}</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <h2 class="section-title">Tip summary</h2>
 <table class="tip-summary">
   <thead>

@@ -30,6 +30,7 @@ from src import (
     crosswalk,
     dixon_coles as dc,
     features,
+    kicktipp_submit,
     market,
     notify,
     optimizer,
@@ -352,6 +353,10 @@ def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned
         fixture_row = {"home_team": home_fd, "away_team": away_fd, "kickoff_cet": kickoff_cet}
 
         ctx = report.build_match_context(fixture_row, rec, lam_market, lam_xg, lam_dc, mkt_probs)
+        # DST-corrected kickoff timestamp (pd.Timestamp, Europe/Berlin,
+        # tz-naive) -- kicktipp_submit uses it for the "too close to
+        # kickoff" guard; not shown in the report.
+        ctx["kickoff_ts"] = fx["kickoff_ts"]
         ctx["heatmap_div"] = report.heatmap_html(
             grid, div_id="grid-{0}-{1}".format(home_fd, away_fd).replace(" ", "_")
         )
@@ -433,6 +438,28 @@ def main():
 
     matchday_number = _infer_matchday_number(fixtures_df)
 
+    # Step 5a: Kicktipp auto-submission. Fully guarded -- any failure is
+    # logged and folded into the report, never raised: the report/email
+    # is the source of truth and must survive a Kicktipp outage or markup
+    # change. Actually places tips only when KICKTIPP_LIVE=1 is in the
+    # env AND this is not a --no-email dry run; otherwise it logs in,
+    # parses, and reports what it WOULD place.
+    kicktipp_lines = []
+    try:
+        kt_summary = kicktipp_submit.submit_tips(
+            match_contexts, matchday_index=None, dry_run=args.no_email
+        )
+        kicktipp_lines = kicktipp_submit.summary_lines(kt_summary)
+        for line in kicktipp_lines:
+            _log(line)
+    except kicktipp_submit.KicktippNotConfigured as exc:
+        _log("Kicktipp auto-submit not configured: {0}".format(exc))
+    except kicktipp_submit.KicktippSubmitError as exc:
+        msg = "Kicktipp auto-submit failed (report unaffected): {0}".format(exc)
+        _log(msg)
+        kicktipp_lines = [msg]
+        warnings.append(msg)
+
     context = {
         "matchday_number": matchday_number,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -445,6 +472,7 @@ def main():
         "season_tracker_div": season_tracker_div,
         "season_stats": season_stats,
         "tuned_params": tuned,
+        "kicktipp_lines": kicktipp_lines,
     }
 
     out_path = os.path.join(
