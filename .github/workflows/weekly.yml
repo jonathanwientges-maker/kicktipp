@@ -17,7 +17,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: kicktipp-weekly
+  # Shared across bootstrap/weekly/results_refresh (not just this
+  # workflow): all three commit-and-push to main, so any two running at
+  # once can race and reject each other's push -- confirmed in practice
+  # (a weekly run finished and pushed while bootstrap was still mid-run,
+  # and bootstrap's own later checkpoint commit then got rejected as a
+  # non-fast-forward, losing the lambda-table checkpoint and final
+  # backtest results that were never re-pushed). One shared group
+  # serializes all three so this can't happen again.
+  group: kicktipp-repo-writer
   cancel-in-progress: false
 
 jobs:
@@ -50,4 +58,5 @@ jobs:
           git config user.email "kicktipp-bot@users.noreply.github.com"
           git add data/
           git diff --cached --quiet || git commit -m "weekly: predictions + report [skip ci]"
+          git pull --rebase origin main
           git push

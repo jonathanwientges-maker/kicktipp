@@ -41,6 +41,35 @@ def scrape_understat_gap_seasons():
                 import pandas as pd
                 shots_df = pd.concat([prior_shots, shots_df], ignore_index=True)
 
+            # scrape_understat.scrape_season() always re-fetches the full
+            # match list (goals/xG/forecast refresh correctly every run),
+            # but only fetches home_npxG/away_npxG/home_shots/away_shots
+            # for match_ids NOT already in existing_ids -- for match_ids
+            # that already existed, those 4 columns come back NaN from the
+            # merge (nothing was re-fetched for them, by design, to avoid
+            # redundant network calls). Left as-is, re-running this
+            # function on a repo that already has a prior *complete*
+            # scrape committed would silently OVERWRITE good npxG/shots
+            # data with NaN for every previously-scraped match -- this is
+            # exactly what happened on a real GitHub Actions run (a
+            # checkpoint commit made mid-run meant a later re-invocation
+            # in the same job saw "everything already exists" and wiped
+            # 611 matches' npxG to NaN, corrupting the promoted-team-prior
+            # regression, which needs real npxG to fit). Backfill those 4
+            # columns from `existing` for any match_id that was already
+            # present, so only genuinely-new matches get NaN (to be
+            # filled by the next incremental run, same as the live weekly
+            # pipeline's normal operation).
+            npxg_cols = ["home_npxG", "away_npxG", "home_shots", "away_shots"]
+            existing_lookup = existing.set_index("match_id")[npxg_cols]
+            matches_df = matches_df.set_index("match_id")
+            for col in npxg_cols:
+                already_had_data = matches_df.index.isin(existing_lookup.index) & matches_df[col].isna()
+                matches_df.loc[already_had_data, col] = existing_lookup.loc[
+                    matches_df.index[already_had_data], col
+                ].values
+            matches_df = matches_df.reset_index()
+
         storage.write_understat_matches(matches_df, season)
         storage.write_understat_shots(shots_df, season)
         _log("season {0}: {1} matches, {2} shots written.".format(

@@ -9,7 +9,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: kicktipp-results-refresh
+  # Shared with bootstrap/weekly -- see weekly.yml's comment on this
+  # same group name. All three commit-and-push to main; running two at
+  # once can reject one's push as a non-fast-forward and silently drop
+  # real work. One shared group serializes all three.
+  group: kicktipp-repo-writer
   cancel-in-progress: false
 
 jobs:
@@ -38,4 +42,5 @@ jobs:
           git config user.email "kicktipp-bot@users.noreply.github.com"
           git add data/
           git diff --cached --quiet || git commit -m "results_refresh: score matchday + update season tracker [skip ci]"
+          git pull --rebase origin main
           git push
