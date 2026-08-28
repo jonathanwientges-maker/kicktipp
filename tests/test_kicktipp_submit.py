@@ -123,10 +123,53 @@ def test_full_kicktipp_style_names_resolve_via_normalization():
         assert ks._resolve_team(kt_name) == expected, kt_name
 
 
+def test_second_bundesliga_names_now_resolve():
+    cases = {
+        "FC Schalke 04": "Schalke 04",
+        "Hertha BSC": "Hertha",
+        "1. FC Nürnberg": "Nurnberg",
+        "Fortuna Düsseldorf": "Fortuna Dusseldorf",
+        "Karlsruher SC": "Karlsruhe",
+        "1. FC Kaiserslautern": "Kaiserslautern",
+        "SpVgg Greuther Fürth": "Greuther Furth",
+        "Holstein Kiel": "Holstein Kiel",
+    }
+    for kt_name, expected in cases.items():
+        assert ks._resolve_team(kt_name) == expected, kt_name
+
+
 def test_normalization_still_hard_fails_on_a_genuinely_unknown_club():
     with pytest.raises(ks.KicktippSubmitError) as ei:
-        ks._resolve_team("1. FC Kaiserslautern")
+        ks._resolve_team("SV Neverheard 1900")
     assert "not in" in str(ei.value)
+
+
+def test_schalke_fixture_resolves_and_is_placed_when_model_has_a_tip():
+    """Augsburg vs Schalke 04 is a real 2026/27 Bundesliga fixture the
+    model tips -- it must resolve and be placed, not hard-fail."""
+    html = _form_html([("1", "Augsburg", "FC Schalke 04", "", "")])
+    rows = _rows_from(html)
+    assert rows[0]["home_fd"] == "Augsburg"
+    assert rows[0]["away_fd"] == "Schalke 04"
+
+    model = {("Augsburg", "Schalke 04"): (1, 2, pd.Timestamp("2099-01-01 15:30"))}
+    d = ks._decide(rows, model, pd.Timestamp("2098-01-01 12:00"))
+    assert [p["row"]["game_id"] for p in d["to_place"]] == ["1"]
+
+
+def test_form_row_with_no_model_tip_is_skipped_not_fatal():
+    """A form row for a fixture outside the model's D1 fixture window must
+    land in 'unmatched' and be skipped -- never placed, never a crash."""
+    html = _form_html([
+        ("1", "Hertha BSC", "1. FC Nürnberg", "", ""),
+        ("2", "Bayern", "Stuttgart", "", ""),
+    ])
+    rows = _rows_from(html)
+    model = {("Bayern Munich", "Stuttgart"): (3, 1, pd.Timestamp("2099-01-01 15:30"))}
+    d = ks._decide(rows, model, pd.Timestamp("2098-01-01 12:00"))
+
+    assert [p["row"]["game_id"] for p in d["to_place"]] == ["2"]
+    assert d["unmatched"] and "Hertha vs Nurnberg" in d["unmatched"][0]
 
 
 # --------------------------------------------------------------------------
