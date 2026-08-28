@@ -42,6 +42,17 @@ from src import (
 
 FIXTURE_WINDOW_DAYS = 8
 
+# football-data.co.uk's fixtures.csv Time column for Bundesliga (D1) is
+# published in UK local time (GMT/BST), NOT German local time -- it is
+# consistently ONE HOUR BEHIND the real CET/CEST kickoff. Both zones
+# observe DST on the same dates, so the gap is a flat +1h year-round, not
+# a seasonal quirk. Confirmed on the 2026/27 opener: CSV said 19:30 for
+# Bayern Munich vs Stuttgart, actual kickoff 20:30 CEST. The rest of this
+# module treats fixture timestamps as German local (that is the frame the
+# report shows and the frame `now` is computed in), so the correction is
+# applied once, here, as the CSV is parsed.
+FD_FIXTURES_TZ_OFFSET = timedelta(hours=1)
+
 
 def _log(msg):
     print("[predict] {0}".format(msg))
@@ -257,6 +268,12 @@ def kickoff_timestamps(fixtures_df, date_col="Date", time_col="Time"):
     fixture in the upcoming window all day rather than silently dropping
     it (a tip published slightly late is recoverable; a tip never
     published is not).
+
+    The parsed Time is shifted by FD_FIXTURES_TZ_OFFSET (+1h): the source
+    publishes D1 kickoff times in UK local time, one hour behind the real
+    German local kickoff (see that constant's definition). The 23:59
+    missing-Time fallback is NOT shifted -- it is an end-of-day sentinel,
+    not a real clock reading.
     """
     dates = pd.to_datetime(fixtures_df[date_col])
     times = fixtures_df[time_col] if time_col in fixtures_df.columns else None
@@ -275,6 +292,7 @@ def kickoff_timestamps(fixtures_df, date_col="Date", time_col="Time"):
             kickoffs.append(
                 pd.Timestamp(date_val).normalize()
                 + pd.Timedelta(hours=int(parsed.hour), minutes=int(parsed.minute))
+                + FD_FIXTURES_TZ_OFFSET
             )
     return pd.Series(kickoffs, index=fixtures_df.index)
 
@@ -330,7 +348,7 @@ def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned
         if odds_1x2 is not None:
             mkt_probs = tuple(market.shin_probabilities(odds_1x2))
 
-        kickoff_cet = _to_cet_string(fx["Date"], fx.get("Time"))
+        kickoff_cet = _to_cet_string(fx["kickoff_ts"], fx.get("Time"))
         fixture_row = {"home_team": home_fd, "away_team": away_fd, "kickoff_cet": kickoff_cet}
 
         ctx = report.build_match_context(fixture_row, rec, lam_market, lam_xg, lam_dc, mkt_probs)
@@ -349,10 +367,19 @@ def _fd_to_understat(fd_name):
     return reverse.get(fd_name, fd_name)
 
 
-def _to_cet_string(date_val, time_val):
-    date_str = pd.Timestamp(date_val).strftime("%a %d %b")
-    if time_val and not pd.isna(time_val):
-        return "{0} {1}".format(date_str, time_val)
+def _to_cet_string(kickoff_ts, time_val):
+    """Human-facing kickoff label, German local time.
+
+    `kickoff_ts` is the already-corrected timestamp from
+    kickoff_timestamps() (source Time + FD_FIXTURES_TZ_OFFSET). The raw
+    `time_val` is only consulted to tell "real kickoff time known" from
+    "missing Time -> 23:59 end-of-day sentinel"; its clock value is not
+    displayed, so the +1h correction is never shown uncorrected.
+    """
+    ts = pd.Timestamp(kickoff_ts)
+    date_str = ts.strftime("%a %d %b")
+    if time_val is not None and not pd.isna(time_val):
+        return "{0} {1}".format(date_str, ts.strftime("%H:%M"))
     return date_str
 
 
