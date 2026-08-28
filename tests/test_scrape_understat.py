@@ -125,3 +125,44 @@ def test_parse_match_shots_handles_new_api_string_numerics():
     assert row["home_away"] == "h"
     assert bool(row["is_penalty"]) is False  # numpy bool_, not Python bool -- compare by value
     assert row["npxG"] == pytest.approx(0.02001)
+
+
+def test_build_match_npxg_and_shots_with_empty_match_ids_keeps_match_id_column():
+    """Regression test: found via a real GitHub Actions bootstrap failure
+    (KeyError: 'match_id' at the merge in scrape_season). When match_ids
+    is empty -- e.g. every match in a season was already scraped in a
+    prior incremental run -- pd.DataFrame([]) (an empty list of row-dicts)
+    produces a DataFrame with NO COLUMNS AT ALL, not an empty-but-
+    correctly-shaped one. scrape_season always merges the result on
+    "match_id", so a columnless npxg_df crashes that merge with a
+    confusing KeyError instead of a clear no-op. build_match_npxg_and_shots
+    must always return a DataFrame with the match_id column present, even
+    when there are zero matches to fetch (no network calls made)."""
+    npxg_df, shots_df = su.build_match_npxg_and_shots([], 2024)
+    assert list(npxg_df.columns) == [
+        "match_id", "home_npxG", "away_npxG", "home_shots", "away_shots",
+    ]
+    assert len(npxg_df) == 0
+    assert len(shots_df) == 0
+
+
+def test_scrape_season_merge_survives_empty_to_fetch():
+    """End-to-end: scrape_season's matches_df.merge(npxg_df, on='match_id')
+    must not raise even when every match_id in matches_df is already in
+    existing_match_ids (to_fetch is empty)."""
+    import pandas as pd
+    from unittest.mock import patch
+
+    fake_dates = [
+        {
+            "id": "1", "isResult": True,
+            "h": {"id": "1", "title": "Home Team"}, "a": {"id": "2", "title": "Away Team"},
+            "goals": {"h": "1", "a": "0"}, "xG": {"h": "1.1", "a": "0.5"},
+            "datetime": "2024-08-23 18:30:00", "forecast": {"w": "0.5", "d": "0.3", "l": "0.2"},
+        },
+    ]
+    with patch("src.scrape_understat.fetch_league_season", return_value=fake_dates):
+        matches_df, shots_df = su.scrape_season("Bundesliga", 2024, existing_match_ids={1})
+    assert len(matches_df) == 1
+    assert "home_npxG" in matches_df.columns
+    assert pd.isna(matches_df.iloc[0]["home_npxG"])  # not fetched, correctly NaN not a crash

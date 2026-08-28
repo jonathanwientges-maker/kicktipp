@@ -215,7 +215,18 @@ def build_match_npxg_and_shots(match_ids, season):
                 "home_shots": 0, "away_shots": 0,
             })
     shots_all_df = pd.concat(all_shots, ignore_index=True) if all_shots else pd.DataFrame()
-    npxg_df = pd.DataFrame(npxg_rows)
+    # pd.DataFrame([]) (an empty list of row-dicts, i.e. match_ids was
+    # empty -- e.g. every match in this season was already scraped in a
+    # prior incremental run) produces a DataFrame with NO COLUMNS AT ALL,
+    # not an empty-but-correctly-shaped one. The caller (scrape_season)
+    # always merges on "match_id", so a columnless npxg_df blows up that
+    # merge with a confusing KeyError instead of a clear "nothing to add"
+    # outcome. Pin the schema explicitly so it's always mergeable, even
+    # when there were zero matches to fetch.
+    npxg_df = pd.DataFrame(
+        npxg_rows,
+        columns=["match_id", "home_npxG", "away_npxG", "home_shots", "away_shots"],
+    )
     return npxg_df, shots_all_df
 
 
