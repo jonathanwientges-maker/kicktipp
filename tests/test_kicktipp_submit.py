@@ -99,6 +99,36 @@ def test_every_current_bundesliga_alias_resolves_without_raising():
         assert ks._resolve_team(n)  # no raise
 
 
+def test_full_kicktipp_style_names_resolve_via_normalization():
+    """The variants Kicktipp actually renders -- founding years, legal
+    forms, 'Borussia' -- must resolve without needing an exact entry."""
+    cases = {
+        "1899 Hoffenheim": "Hoffenheim",
+        "TSG 1899 Hoffenheim": "Hoffenheim",
+        "1. FC Köln": "FC Koln",
+        "1. FSV Mainz 05": "Mainz",
+        "VfB Stuttgart": "Stuttgart",
+        "VfL Wolfsburg": "Wolfsburg",
+        "Borussia Dortmund": "Dortmund",
+        "Bor. Mönchengladbach": "M'gladbach",
+        "1. FC Union Berlin": "Union Berlin",
+        "1. FC Heidenheim 1846": "Heidenheim",
+        "SV 07 Elversberg": "Elversberg",
+        "Hamburger SV": "Hamburg",
+        "SC Freiburg": "Freiburg",
+        "FC Augsburg": "Augsburg",
+        "SV Werder Bremen": "Werder Bremen",
+    }
+    for kt_name, expected in cases.items():
+        assert ks._resolve_team(kt_name) == expected, kt_name
+
+
+def test_normalization_still_hard_fails_on_a_genuinely_unknown_club():
+    with pytest.raises(ks.KicktippSubmitError) as ei:
+        ks._resolve_team("1. FC Kaiserslautern")
+    assert "not in" in str(ei.value)
+
+
 # --------------------------------------------------------------------------
 # Decision logic
 # --------------------------------------------------------------------------

@@ -139,18 +139,59 @@ def _fetch_form_page(session, matchday_index):
 # --------------------------------------------------------------------------
 # Parsing
 # --------------------------------------------------------------------------
+# Boilerplate that varies between Kicktipp / football-data renderings of
+# the same club: legal-form prefixes, founding-year numbers, "Borussia".
+# Stripping these before matching turns "1899 Hoffenheim" -> "hoffenheim",
+# "1. FC Koln" -> "koln", "VfB Stuttgart" -> "stuttgart", etc. -- so the
+# alias map only needs one canonical spelling per club, not every skin's
+# variant. Still deterministic; still hard-fails if the core token is
+# genuinely unknown.
+_CLUB_NOISE_RE = re.compile(
+    r"\b(?:1\.?\s*)?(?:FC|FSV|VfL|VfB|TSG|SV|SC|SpVgg|Borussia|Bor\.?|Eintracht|"
+    r"1899|1846|1900|1907|18\d{2}|19\d{2}|0[4-9]|[4-9]\d)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_team_token(name):
+    s = re.sub(r"\s*\([HA]\)\s*$", "", name or "").strip()
+    s = _CLUB_NOISE_RE.sub(" ", s)
+    s = re.sub(r"[.\-]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    return s
+
+
+# Precomputed normalized index of the alias map, built once on import.
+_NORMALIZED_ALIASES = {}
+for _k, _v in config.KICKTIPP_TEAM_ALIASES.items():
+    _NORMALIZED_ALIASES.setdefault(_normalize_team_token(_k), _v)
+
+
 def _resolve_team(display_name):
-    """Kicktipp display name -> football-data name. Hard-fail if unmapped."""
+    """Kicktipp display name -> football-data name. Hard-fail if unmapped.
+
+    Tries, in order: exact match, match after stripping a trailing
+    "(H)"/"(A)", then a normalized-token match that ignores legal-form
+    prefixes and founding-year numbers (see _CLUB_NOISE_RE). The last step
+    lets a club be listed once in config.KICKTIPP_TEAM_ALIASES regardless
+    of which spelling variant Kicktipp happens to render.
+    """
     name = (display_name or "").strip()
     if name in config.KICKTIPP_TEAM_ALIASES:
         return config.KICKTIPP_TEAM_ALIASES[name]
-    # tolerate a trailing "(H)"/"(A)" or extra whitespace some skins add
+
     stripped = re.sub(r"\s*\([HA]\)\s*$", "", name).strip()
     if stripped in config.KICKTIPP_TEAM_ALIASES:
         return config.KICKTIPP_TEAM_ALIASES[stripped]
+
+    token = _normalize_team_token(name)
+    if token and token in _NORMALIZED_ALIASES:
+        return _NORMALIZED_ALIASES[token]
+
     raise KicktippSubmitError(
-        "Kicktipp team name {0!r} is not in config.KICKTIPP_TEAM_ALIASES -- "
-        "add the mapping (see crosswalk.py philosophy: never guess).".format(name)
+        "Kicktipp team name {0!r} (normalized {1!r}) is not in "
+        "config.KICKTIPP_TEAM_ALIASES -- add the mapping (see crosswalk.py "
+        "philosophy: never guess).".format(name, token)
     )
 
 

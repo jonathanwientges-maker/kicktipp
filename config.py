@@ -198,6 +198,8 @@ KICKTIPP_TEAM_ALIASES = {
     "SC Freiburg": "Freiburg",
     "Hoffenheim": "Hoffenheim",
     "TSG Hoffenheim": "Hoffenheim",
+    "1899 Hoffenheim": "Hoffenheim",
+    "TSG 1899 Hoffenheim": "Hoffenheim",
     "Mainz": "Mainz",
     "Mainz 05": "Mainz",
     "1. FSV Mainz 05": "Mainz",
