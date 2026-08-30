@@ -81,6 +81,22 @@ def write_understat_shots(df, season):
     return write_parquet(df, config.UNDERSTAT_DIR, season, "shots")
 
 
+def understat_rosters(season):
+    return read_parquet(config.UNDERSTAT_DIR, season, "rosters")
+
+
+def write_understat_rosters(df, season):
+    return write_parquet(df, config.UNDERSTAT_DIR, season, "rosters")
+
+
+def understat_team_stats(season):
+    return read_parquet(config.UNDERSTAT_DIR, season, "team_stats")
+
+
+def write_understat_team_stats(df, season):
+    return write_parquet(df, config.UNDERSTAT_DIR, season, "team_stats")
+
+
 def odds_d1(season):
     return read_parquet(config.ODDS_DIR, season, "D1")
 
@@ -103,6 +119,14 @@ def all_understat_matches(seasons=None):
 
 def all_understat_shots(seasons=None):
     return read_all_seasons(config.UNDERSTAT_DIR, "shots", seasons=seasons)
+
+
+def all_understat_rosters(seasons=None):
+    return read_all_seasons(config.UNDERSTAT_DIR, "rosters", seasons=seasons)
+
+
+def all_understat_team_stats(seasons=None):
+    return read_all_seasons(config.UNDERSTAT_DIR, "team_stats", seasons=seasons)
 
 
 def all_odds_d1(seasons=None):
