@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0b0f14;
+  --surface: #141a21;
+  --surface-2: #1b232c;
+  --border: #232c36;
+  --text: #e6edf3;
+  --muted: #8b98a5;
+  --accent: #7c5cff;
+  --positive: #3fb950;
+  --negative: #f85149;
+  --warning: #d29922;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.container-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* Wide tables scroll horizontally below 640px with a sticky first col. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.table-scroll table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.table-scroll th,
+.table-scroll td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  text-align: right;
+}
+.table-scroll th:first-child,
+.table-scroll td:first-child {
+  text-align: left;
+}
+.table-scroll thead th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+@media (max-width: 640px) {
+  .table-scroll td:first-child,
+  .table-scroll th:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--surface);
+    z-index: 1;
+  }
+}
+
+svg text {
+  fill: var(--text);
+}
