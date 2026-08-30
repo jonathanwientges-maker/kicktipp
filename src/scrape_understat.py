@@ -452,9 +452,17 @@ def build_match_npxg_shots_rosters(match_ids, season, warnings=None):
                 "match_id": mid, "home_npxG": 0.0, "away_npxG": 0.0,
                 "home_shots": 0, "away_shots": 0,
             })
-    shots_all_df = pd.concat(all_shots, ignore_index=True) if all_shots else pd.DataFrame()
+    # drop empty per-match frames before concat: an empty DataFrame among
+    # non-empty ones triggers pandas' all-NA-column FutureWarning and can
+    # muddy result dtypes.
+    non_empty_shots = [d for d in all_shots if len(d) > 0]
+    non_empty_rosters = [d for d in all_rosters if len(d) > 0]
+    shots_all_df = (
+        pd.concat(non_empty_shots, ignore_index=True) if non_empty_shots else pd.DataFrame()
+    )
     rosters_all_df = (
-        pd.concat(all_rosters, ignore_index=True) if all_rosters else pd.DataFrame()
+        pd.concat(non_empty_rosters, ignore_index=True)
+        if non_empty_rosters else pd.DataFrame()
     )
     npxg_df = pd.DataFrame(
         npxg_rows,

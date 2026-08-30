@@ -116,7 +116,7 @@ export default async function SpielberichtPage({ params }: { params: Promise<{ m
   return (
     <>
       <p className="muted" style={{ marginBottom: "0.25rem", fontSize: "0.9rem" }}>
-        Spieltag {m.matchday} · {fmtDate(m.date)}
+        Spieltag {m.round} · {fmtDate(m.date)}
         {time ? ` · ${time}` : ""}
       </p>
       <h1 style={{ fontSize: "1.5rem", margin: "0 0 1rem" }}>

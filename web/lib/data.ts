@@ -19,7 +19,10 @@ function exists(rel: string): boolean {
 export interface Manifest {
   generated_at: string;
   current_season: number;
+  /** internal date-index matchday (~99/season) -- not the football Spieltag */
   latest_matchday: number;
+  /** true 1..34 Bundesliga Spieltag of the most recent played round */
+  latest_round: number;
   seasons: number[];
   team_stats_available: boolean;
   warnings: string[];
@@ -57,7 +60,10 @@ export function getSeasonTable(season: number): SeasonTable {
 // ---- matches ---------------------------------------------------------
 export interface MatchEntry {
   match_id: number;
+  /** internal date-index matchday -- not the football Spieltag */
   matchday: number;
+  /** true 1..34 Bundesliga Spieltag */
+  round: number;
   date: string;
   time: string | null;
   home: string;

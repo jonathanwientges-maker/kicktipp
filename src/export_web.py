@@ -94,6 +94,9 @@ class Bundle(object):
         if len(self.matches):
             self.matches = self.matches.sort_values("datetime").reset_index(drop=True)
             self.matches["matchday"] = web_metrics.matchday_number(self.matches).values
+            # true 1..34 Bundesliga Spieltag, for display/routing on the
+            # site -- distinct from the internal date-index "matchday".
+            self.matches["round"] = web_metrics.round_number(self.matches).values
         self.seasons = sorted(self.matches["season"].unique().tolist()) if len(self.matches) else []
         # "current season" = latest season that actually has played matches.
         self.current_season = self.seasons[-1] if self.seasons else config.CURRENT_SEASON
@@ -103,16 +106,26 @@ class Bundle(object):
 
     @property
     def odds_by_match(self):
+        """match_id -> odds row, joined SEASON BY SEASON so that one
+        season's unmapped team (e.g. a newly-promoted club with no
+        crosswalk entry, or a season whose odds CSV is not published yet)
+        only costs that season its kickoff times -- every other season's
+        times still resolve."""
         if self._odds_by_match is None:
-            if len(self.odds_d1) and len(self.matches):
+            self._odds_by_match = {}
+            if len(self.matches):
                 from src.backtest import _join_odds_to_matches
-                try:
-                    self._odds_by_match = _join_odds_to_matches(self.matches, self.odds_d1)
-                except Exception as exc:  # noqa: BLE001
-                    _log("odds join failed ({0}); kickoff times degrade to date-only".format(exc))
-                    self._odds_by_match = {}
-            else:
-                self._odds_by_match = {}
+                for season in self.seasons:
+                    sm = self.matches[self.matches["season"] == season]
+                    so = storage.odds_d1(season)
+                    if len(sm) == 0 or so is None or len(so) == 0:
+                        continue
+                    try:
+                        self._odds_by_match.update(_join_odds_to_matches(sm, so))
+                    except Exception as exc:  # noqa: BLE001
+                        _log("odds join for season {0} skipped ({1}); that "
+                             "season's kickoff times fall back to date-only"
+                             .format(season, exc))
         return self._odds_by_match
 
     @property
@@ -157,6 +170,7 @@ def _match_core(b, m):
     return {
         "match_id": mid,
         "matchday": int(m["matchday"]),
+        "round": int(m["round"]),
         "date": date_str,
         "time": time_str,
         "home": m["home_team"],
@@ -265,12 +279,15 @@ def _model_tips_frame(b):
 # ---------------------------------------------------------------------------
 def export_manifest(b, warnings):
     latest_md = 0
+    latest_round = 0
     if len(b.season_matches(b.current_season)):
         latest_md = int(b.season_matches(b.current_season)["matchday"].max())
+        latest_round = int(b.season_matches(b.current_season)["round"].max())
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "current_season": int(b.current_season),
         "latest_matchday": latest_md,
+        "latest_round": latest_round,
         "seasons": [int(s) for s in b.seasons],
         "team_stats_available": bool(b.team_stats_available),
         "warnings": list(warnings),
@@ -284,14 +301,21 @@ def export_season_table(b, season):
     table = web_metrics.season_table(sm, ss)
     rows = table.to_dict("records")
 
-    # position-over-time history: per matchday, each team's position
+    # position-over-time history: per ROUND (1..34), each team's position.
+    # We still slice by the internal date-index matchday, but label the
+    # point with the true round so the chart's x-axis reads 1..34.
     history = []
     if len(sm):
-        max_md = int(sm["matchday"].max())
-        for md in range(1, max_md + 1):
+        # map each round -> the max date-index matchday it contains, so
+        # "table after round r" == table up to that matchday.
+        round_to_md = (
+            sm.groupby("round")["matchday"].max().sort_index().to_dict()
+        )
+        for rnd, md in round_to_md.items():
             t = web_metrics.season_table(sm, ss, upto_matchday=md)
             for pos, rec in enumerate(t.to_dict("records"), start=1):
-                history.append({"matchday": md, "team": rec["team"], "position": pos})
+                history.append({"matchday": int(rnd), "team": rec["team"],
+                                "position": pos})
     _write("season/{0}/table.json".format(season),
            {"season": int(season), "table": rows, "history": history})
 
@@ -423,21 +447,21 @@ def export_predicted_table(b, season):
 
 
 def export_model_performance(b, season):
-    """Per matchday + cumulative: exact/GD/tendency/miss counts, points,
-    and the always-2-1 baseline. Read from backtest_matches.parquet and
-    season_points.csv -- NEVER the current unplayed matchday."""
+    """Per ROUND (1..34) + cumulative: exact/GD/tendency/miss counts,
+    points, and the always-2-1 baseline. Read from backtest_matches.parquet
+    and season_points.csv -- NEVER the current unplayed round."""
     bt = b.backtest
     rows = []
     if len(bt):
         s = bt[bt["season"] == season].copy()
         if len(s):
             s = s.merge(
-                b.matches[["match_id", "matchday"]], on="match_id", how="left"
-            ).sort_values("matchday")
+                b.matches[["match_id", "round"]], on="match_id", how="left"
+            ).sort_values("round")
             per_md = []
             cum = {"points": 0, "always21": 0, "exact": 0, "gd": 0, "tend": 0,
                    "miss": 0, "n": 0}
-            for md, g in s.groupby("matchday"):
+            for md, g in s.groupby("round"):
                 exact = int(g["exact_hit"].sum())
                 gd = int(((g["gd_hit"] == 1) & (g["exact_hit"] == 0)).sum())
                 tend = int(((g["tendency_hit"] == 1) & (g["gd_hit"] == 0)).sum())
@@ -574,7 +598,7 @@ def export_leaders(b, season):
 
 
 def export_team_pages(b, season):
-    sm = b.season_matches(season).sort_values("matchday")
+    sm = b.season_matches(season).sort_values(["round", "datetime"])
     ss = b.season_shots(season)
     teams = sorted(set(sm["home_team"]) | set(sm["away_team"]))
     xg_lists = web_metrics._shot_xg_lists_by_match_side(ss)
@@ -600,12 +624,12 @@ def export_team_pages(b, season):
             xp = xph if is_home else xpa
             pts = 3 if gf > ga else (1 if gf == ga else 0)
             results.append({
-                "match_id": int(mid), "matchday": int(r["matchday"]),
+                "match_id": int(mid), "matchday": int(r["round"]),
                 "opponent": r["away_team"] if is_home else r["home_team"],
                 "venue": venue, "goals_for": gf, "goals_against": ga,
                 "xg_for": xf, "xg_against": xa, "points": pts, "xpoints": xp,
             })
-            luck_by_md.append({"matchday": int(r["matchday"]), "luck": pts - xp})
+            luck_by_md.append({"matchday": int(r["round"]), "luck": pts - xp})
             shots_m = ss[ss["match_id"] == mid] if len(ss) else ss.iloc[0:0]
             gsx = web_metrics.game_state_xg(shots_m)
             side = "h" if is_home else "a"
@@ -647,7 +671,7 @@ def export_team_pages(b, season):
 
 
 def export_stat_of_the_week(b):
-    """§3.8: candidates from the completed matchday, pick the largest
+    """§3.8: candidates from the completed round, pick the largest
     |z-score| vs the season-to-date distribution."""
     season = b.current_season
     sm = b.season_matches(season)
@@ -655,10 +679,11 @@ def export_stat_of_the_week(b):
         _write("stat_of_the_week.json", {"matchday": 0, "headline": "", "value": None,
                                         "context": "", "link": ""})
         return
-    latest_md = int(sm["matchday"].max())
+    latest_md = int(sm["round"].max())
     ss = b.season_shots(season)
     mf = web_metrics._match_level_frame(sm, ss)
-    mf = mf.merge(sm[["match_id", "matchday"]], on="match_id", how="left")
+    mf = mf.merge(sm[["match_id", "round"]].rename(columns={"round": "matchday"}),
+                  on="match_id", how="left")
     season_to_date = mf[mf["matchday"] <= latest_md]
     week = mf[mf["matchday"] == latest_md]
     if len(week) == 0 or len(season_to_date) < 3:

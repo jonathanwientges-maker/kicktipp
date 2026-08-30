@@ -16,13 +16,13 @@ import { Sparkline } from "@/components/charts/Sparkline";
 export default function StartPage() {
   const manifest = getManifest();
   const season = manifest.current_season;
-  const md = manifest.latest_matchday;
+  const md = manifest.latest_round;
   const stat = safe(() => getStatOfWeek());
   const { matches } = getSeasonMatches(season);
   const { table, history } = getSeasonTable(season);
 
-  const played = matches.filter((m) => m.matchday <= md);
-  const lastWeek = played.filter((m) => m.matchday === md);
+  const played = matches.filter((m) => m.round <= md);
+  const lastWeek = played.filter((m) => m.round === md);
   const standout = [...lastWeek]
     .sort((a, b) => b.home_xg + b.away_xg - (a.home_xg + a.away_xg))
     .slice(0, 2);
@@ -33,13 +33,13 @@ export default function StartPage() {
   const bottom5 = luckSorted.slice(-5).reverse();
 
   const upcoming = matches
-    .filter((m) => m.matchday === md + 1)
+    .filter((m) => m.round === md + 1)
     .slice(0, 9);
 
   const teamLast5 = (team: string) => {
     const ms = played
       .filter((m) => m.home === team || m.away === team)
-      .sort((a, b) => a.matchday - b.matchday)
+      .sort((a, b) => a.round - b.round)
       .slice(-5);
     return {
       xgFor: ms.map((m) => (m.home === team ? m.home_xg : m.away_xg)),

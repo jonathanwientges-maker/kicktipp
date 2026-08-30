@@ -177,6 +177,12 @@ def matchday_number(matches_df):
     1-indexed matchday within each season, by dense rank of distinct
     kickoff dates. src/lambda_table.py imports this so the two never
     diverge.
+
+    NOTE: because a Bundesliga round is played across ~3 dates, this
+    counts ~99 per season, not 1-34 -- it is a match-DATE index, not the
+    football Spieltag. It is leakage-insensitive and only used for
+    reporting/diagnostics. For the true 1-34 round shown on the website,
+    use round_number().
     """
     out = matches_df.copy()
     out["_kickoff_date"] = pd.to_datetime(out["datetime"]).dt.date
@@ -186,6 +192,31 @@ def matchday_number(matches_df):
         .astype(int)
     )
     return md
+
+
+def round_number(matches_df, teams_per_round=9):
+    """
+    The true 1-indexed Bundesliga Spieltag (1..34) for each match, for
+    DISPLAY on the website. Within each season, matches are ordered by
+    kickoff and grouped in blocks of `teams_per_round` (9 matches = one
+    round for an 18-team league); the block index + 1 is the round.
+
+    This is exact for a completed season and for any season whose rounds
+    have been played in order. A postponed fixture can momentarily shift
+    a couple of matches into the neighbouring round until it is played;
+    that self-corrects and never affects the internal matchday_number or
+    any stored schema.
+
+    Returns a pd.Series aligned to matches_df's index.
+    """
+    out = matches_df.copy()
+    out["_dt"] = pd.to_datetime(out["datetime"])
+    rounds = pd.Series(index=matches_df.index, dtype="int64")
+    for season, grp in out.groupby("season"):
+        ordered = grp.sort_values(["_dt", "match_id"])
+        r = (pd.RangeIndex(len(ordered)) // teams_per_round) + 1
+        rounds.loc[ordered.index] = r.astype("int64").values
+    return rounds
 
 
 # ---------------------------------------------------------------------------

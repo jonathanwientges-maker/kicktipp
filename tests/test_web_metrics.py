@@ -165,6 +165,36 @@ def test_simulate_season_reproducible_and_probabilities_sum_to_one():
 # ---------------------------------------------------------------------------
 # 9.8 matchday_number matches the stored lambda_table exactly
 # ---------------------------------------------------------------------------
+def test_round_number_is_one_to_thirtyfour_nine_per_round_for_completed_seasons():
+    from src import storage
+
+    matches = storage.all_understat_matches()
+    if len(matches) == 0:
+        pytest.skip("no scraped matches in this checkout")
+    rounds = wm.round_number(matches)
+    m = matches.assign(_round=rounds.values)
+    for season, grp in m.groupby("season"):
+        if len(grp) != 306:  # only assert on a complete 18-team season
+            continue
+        counts = grp.groupby("_round").size()
+        assert grp["_round"].min() == 1
+        assert grp["_round"].max() == 34
+        assert (counts == 9).all()
+
+
+def test_round_number_synthetic_ordering():
+    # 12 matches over 3 dates -> teams_per_round=4 -> rounds 1,1,1,1,2,2,2,2,3,3,3,3
+    rows = []
+    for i in range(12):
+        rows.append({
+            "match_id": 100 + i, "season": 2025,
+            "datetime": pd.Timestamp("2025-08-01") + pd.Timedelta(days=i),
+        })
+    df = pd.DataFrame(rows)
+    r = wm.round_number(df, teams_per_round=4)
+    assert list(r) == [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]
+
+
 def test_matchday_number_matches_stored_lambda_table():
     import os
     import config

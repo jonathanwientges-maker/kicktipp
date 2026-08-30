@@ -7,7 +7,7 @@ export const dynamicParams = false;
 export function generateStaticParams() {
   const manifest = getManifest();
   const { matches } = getSeasonMatches(manifest.current_season);
-  const mds = Array.from(new Set(matches.map((m) => m.matchday)));
+  const mds = Array.from(new Set(matches.map((m) => m.round)));
   return mds.map((n) => ({ n: String(n) }));
 }
 
@@ -21,7 +21,7 @@ export default async function SpieltagPage({ params }: { params: Promise<{ n: st
   const n = parseInt(nRaw, 10);
   const manifest = getManifest();
   const { matches } = getSeasonMatches(manifest.current_season);
-  const list = matches.filter((m) => m.matchday === n).sort((a, b) => a.date.localeCompare(b.date));
+  const list = matches.filter((m) => m.round === n).sort((a, b) => a.date.localeCompare(b.date));
 
   return (
     <>
