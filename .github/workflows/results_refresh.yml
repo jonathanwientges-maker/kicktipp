@@ -35,12 +35,19 @@ jobs:
       - name: Refresh results and score last matchday's tips
         run: python -m src.results_refresh
 
+      # Export the public website JSON AFTER results_refresh has scored
+      # the completed matchday, so the site is always built from
+      # finalised results -- and BEFORE the single commit below, so the
+      # week produces exactly one commit and therefore one Vercel deploy.
+      - name: Export website data
+        run: python -m src.export_web
+
       - name: Commit data + season tracker
         if: always()
         run: |
           git config user.name "kicktipp-bot"
           git config user.email "kicktipp-bot@users.noreply.github.com"
-          git add data/
-          git diff --cached --quiet || git commit -m "results_refresh: score matchday + update season tracker [skip ci]"
+          git add data/ web/public/data/
+          git diff --cached --quiet || git commit -m "results_refresh + web export [skip ci]"
           git pull --rebase origin main
           git push

@@ -1,0 +1,49 @@
+name: backfill_rosters
+
+on:
+  workflow_dispatch:
+    inputs:
+      seasons:
+        description: "Comma-separated Understat seasons to (re-)scrape rosters + enriched shots for"
+        required: false
+        default: "2024,2025"
+
+permissions:
+  contents: write
+
+concurrency:
+  # Shared with bootstrap/weekly/results_refresh -- all commit-and-push
+  # to main; running two at once can reject one's push as a
+  # non-fast-forward and silently drop real work. One shared group
+  # serializes them.
+  group: kicktipp-repo-writer
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Backfill rosters + enriched shots
+        run: python -m src.backfill_rosters --seasons "${{ inputs.seasons }}"
+
+      - name: Commit backfilled data
+        if: always()
+        run: |
+          git config user.name "kicktipp-bot"
+          git config user.email "kicktipp-bot@users.noreply.github.com"
+          git add data/
+          git diff --cached --quiet || git commit -m "backfill_rosters: enriched shots + rosters [skip ci]"
+          git pull --rebase origin main
+          git push

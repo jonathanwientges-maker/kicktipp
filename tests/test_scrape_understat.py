@@ -107,6 +107,48 @@ def test_parse_league_matches_handles_new_api_string_numerics():
     assert row["forecast_win"] == pytest.approx(0.074)
 
 
+def test_parse_upcoming_fixtures_only_unplayed_and_no_forward_numbers():
+    """parse_upcoming_fixtures returns exactly the isResult == False rows,
+    carrying teams + kickoff only -- never goals/xG/forecast (those are
+    null for unplayed games and must not reach the website)."""
+    dates_data = [
+        {
+            "id": "1", "isResult": True,
+            "h": {"id": "1", "title": "A"}, "a": {"id": "2", "title": "B"},
+            "goals": {"h": "2", "a": "1"}, "xG": {"h": "1.9", "a": "0.7"},
+            "datetime": "2026-08-28 18:30:00",
+        },
+        {
+            "id": "2", "isResult": False,
+            "h": {"id": "3", "title": "C"}, "a": {"id": "4", "title": "D"},
+            "goals": {"h": None, "a": None}, "xG": {"h": None, "a": None},
+            "datetime": "2026-09-04 20:30:00",
+        },
+    ]
+    fx = su.parse_upcoming_fixtures(dates_data, 2026)
+    assert list(fx["match_id"]) == [2]
+    assert fx.iloc[0]["home_team"] == "C"
+    assert fx.iloc[0]["away_team"] == "D"
+    assert set(fx.columns) == {
+        "match_id", "season", "league", "datetime", "home_team", "away_team",
+    }
+    forbidden = {"goals", "xg", "xG", "forecast", "home_goals", "home_xG"}
+    assert forbidden.isdisjoint(set(fx.columns))
+
+
+def test_parse_upcoming_fixtures_empty_when_season_complete():
+    dates_data = [
+        {"id": "1", "isResult": True, "h": {"title": "A"}, "a": {"title": "B"},
+         "goals": {"h": "0", "a": "0"}, "xG": {"h": "1", "a": "1"},
+         "datetime": "2026-08-28 18:30:00"},
+    ]
+    fx = su.parse_upcoming_fixtures(dates_data, 2026)
+    assert len(fx) == 0
+    assert list(fx.columns) == [
+        "match_id", "season", "league", "datetime", "home_team", "away_team",
+    ]
+
+
 def test_parse_match_shots_handles_new_api_string_numerics():
     shots_data = {
         "h": [{

@@ -77,8 +77,11 @@ def refresh_current_season_data(season, warnings):
     existing_ids = set(existing["match_id"]) if existing is not None else set()
 
     try:
-        matches_df, shots_df = scrape_understat.scrape_season(
-            config.LEAGUE, season, existing_match_ids=existing_ids
+        matches_df, shots_df, rosters_df, team_stats_df, fixtures_df = (
+            scrape_understat.scrape_season_enriched(
+                config.LEAGUE, season, existing_match_ids=existing_ids,
+                warnings=warnings,
+            )
         )
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
@@ -86,16 +89,52 @@ def refresh_current_season_data(season, warnings):
             "(no silent fallback).".format(season, exc)
         )
 
+    # Not-yet-played fixtures (teams + kickoff only) -- always overwrite
+    # with the freshest pull; shrinks to empty as the season completes.
+    storage.write_understat_fixtures(fixtures_df, season)
+
     if len(matches_df) > 0:
+        # scrape_season_enriched only computes the derived per-match npxG /
+        # shot counts for matches it actually re-fetched. For an already-
+        # complete season nothing is re-fetched, so carry those columns
+        # over from the existing partition instead of writing NaN.
+        if existing is not None and len(existing) > 0:
+            carry_cols = [c for c in ("home_npxG", "away_npxG", "home_shots",
+                                      "away_shots")
+                          if c in existing.columns]
+            if carry_cols:
+                prior = existing[["match_id"] + carry_cols].set_index("match_id")
+                for c in carry_cols:
+                    filled = matches_df["match_id"].map(prior[c])
+                    if c in matches_df.columns:
+                        matches_df[c] = matches_df[c].where(
+                            matches_df[c].notna(), filled
+                        )
+                    else:
+                        matches_df[c] = filled
         storage.write_understat_matches(matches_df, season)
         if existing is not None and len(existing) > 0:
             prior_shots = storage.understat_shots(season)
             if prior_shots is not None and len(prior_shots) > 0:
                 shots_df = pd.concat([prior_shots, shots_df], ignore_index=True)
+            prior_rosters = storage.understat_rosters(season)
+            if prior_rosters is not None and len(prior_rosters) > 0:
+                rosters_df = pd.concat([prior_rosters, rosters_df], ignore_index=True)
         storage.write_understat_shots(shots_df, season)
-        _log("Refreshed season {0}: {1} matches, {2} new shot rows.".format(
-            season, len(matches_df), len(shots_df)
-        ))
+        if len(rosters_df) > 0:
+            rosters_df = rosters_df.drop_duplicates(
+                subset=["match_id", "player_id", "team_side"], keep="last"
+            )
+        storage.write_understat_rosters(rosters_df, season)
+        # team_stats is a whole-season snapshot from getLeagueData -- always
+        # overwrite with the freshest pull (empty frame with correct schema
+        # when Understat doesn't expose the per-team block).
+        storage.write_understat_team_stats(team_stats_df, season)
+        _log("Refreshed season {0}: {1} matches, {2} shot rows, {3} roster rows, "
+             "{4} team-stat rows.".format(
+                 season, len(matches_df), len(shots_df), len(rosters_df),
+                 len(team_stats_df)
+             ))
 
     drift_ok = run_drift_check(warnings)
     if not drift_ok:

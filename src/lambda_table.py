@@ -30,7 +30,14 @@ import numpy as np
 import pandas as pd
 
 import config
-from src import dixon_coles as dc, features, market, promoted_prior, storage
+from src import (
+    dixon_coles as dc,
+    features,
+    market,
+    promoted_prior,
+    storage,
+    web_metrics,
+)
 
 LAMBDA_TABLE_PATH = os.path.join(config.STATE_DIR, "lambda_table.parquet")
 LAMBDA_TABLE_META_PATH = os.path.join(config.STATE_DIR, "lambda_table_meta.json")
@@ -87,19 +94,11 @@ def save_table(df):
 
 
 def _matchday_number(matches_df):
-    """Assign a 1-indexed matchday number within each season, grouping
-    matches by kickoff date proximity (Bundesliga matchdays cluster
-    within a Fri-Mon window). Approximated by rank of distinct kickoff
-    dates within the season -- sufficient for reporting/diagnostics, not
-    used in any leakage-sensitive computation."""
-    out = matches_df.copy()
-    out["kickoff_date"] = out["datetime"].dt.date
-    md = (
-        out.groupby("season")["kickoff_date"]
-        .rank(method="dense")
-        .astype(int)
-    )
-    return md
+    """1-indexed matchday within each season (dense rank of distinct
+    kickoff dates). Single source of truth lives in
+    web_metrics.matchday_number -- imported here so the two never
+    diverge (BUILD BLUEPRINT §2.5)."""
+    return web_metrics.matchday_number(matches_df)
 
 
 def compute_lam_market_column(matches_df, odds_by_match_id):
