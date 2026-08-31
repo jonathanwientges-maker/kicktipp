@@ -2,7 +2,21 @@ import { allMatchIds, getMatch, getManifest } from "@/lib/data";
 import { XgRace } from "@/components/charts/XgRace";
 import { ShotMap } from "@/components/charts/ShotMap";
 import { fmtDate, fmtInt, fmtNum, fmtTime } from "@/lib/format";
+import { teamColor, teamName, withTeamNames } from "@/lib/teamColors";
 import { Section } from "@/components/Section";
+import { Explainer } from "@/components/Explainer";
+import { GLOSSARY } from "@/lib/glossary";
+
+const ROW_INFO: Record<string, keyof typeof GLOSSARY> = {
+  xG: "xg",
+  npxG: "npxg",
+  xPunkte: "xpunkte",
+  "Großchancen": "grosschancen",
+  "Offenes Spiel (xG)": "standardanteil",
+  "Standard (xG)": "standardanteil",
+  PPDA: "ppda",
+  "Zuspiele in Tornähe": "deep",
+};
 
 export const dynamicParams = false;
 
@@ -14,7 +28,7 @@ export async function generateMetadata({ params }: { params: Promise<{ matchId: 
   try {
     const { matchId } = await params;
     const m = getMatch(parseInt(matchId, 10));
-    return { title: `${m.home} ${m.home_goals}:${m.away_goals} ${m.away} — Spielbericht` };
+    return { title: `${teamName(m.home)} ${m.home_goals}:${m.away_goals} ${teamName(m.away)} — Spielbericht` };
   } catch {
     return { title: "Spielbericht — Bundesliga Hub" };
   }
@@ -41,70 +55,42 @@ function NumBlock({ m }: { m: ReturnType<typeof getMatch> }) {
     rows.push(["Zuspiele in Tornähe", fmtNum(m.deep.home ?? NaN, 0), fmtNum(m.deep.away ?? NaN, 0)]);
   }
   return (
-    <div className="surface table-scroll">
-      <table>
+    <div className="surface" style={{ padding: "0.25rem 1rem", overflow: "visible" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th></th>
-            <th>{m.home}</th>
-            <th>{m.away}</th>
+            <th style={{ textAlign: "left" }}></th>
+            <th className="num" style={{ color: "var(--text)", textAlign: "right", padding: "0.6rem 0.7rem" }}>{teamName(m.home)}</th>
+            <th className="num" style={{ color: "var(--text)", textAlign: "right", padding: "0.6rem 0.7rem" }}>{teamName(m.away)}</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r[0]}>
-              <td>{r[0]}</td>
-              <td className="num">{r[1]}</td>
-              <td className="num">{r[2]}</td>
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const infoKey = ROW_INFO[r[0]];
+            const cell: React.CSSProperties = {
+              padding: "0.55rem 0.7rem",
+              borderTop: i === 0 ? "none" : "1px solid var(--border)",
+            };
+            return (
+              <tr key={r[0]}>
+                <td className="label" style={{ ...cell, textAlign: "left" }}>
+                  {infoKey ? (
+                    <Explainer label={r[0]}>{GLOSSARY[infoKey]}</Explainer>
+                  ) : (
+                    r[0]
+                  )}
+                </td>
+                <td className="num" style={{ ...cell, textAlign: "right" }}>{r[1]}</td>
+                <td className="num" style={{ ...cell, textAlign: "right" }}>{r[2]}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-function GameStateBar({ gsx }: { gsx: Record<string, number> }) {
-  const seg = (side: "h" | "a") => [
-    { k: "level", label: "unentschieden", v: gsx[`xg_while_level_${side}`] ?? 0 },
-    { k: "winning", label: "in Führung", v: gsx[`xg_while_winning_${side}`] ?? 0 },
-    { k: "losing", label: "in Rückstand", v: gsx[`xg_while_losing_${side}`] ?? 0 },
-  ];
-  const colors: Record<string, string> = {
-    level: "var(--muted)",
-    winning: "var(--positive)",
-    losing: "var(--negative)",
-  };
-  const Row = ({ side, name }: { side: "h" | "a"; name: string }) => {
-    const s = seg(side);
-    const total = s.reduce((a, b) => a + b.v, 0) || 1;
-    return (
-      <div style={{ marginBottom: "0.6rem" }}>
-        <div style={{ fontSize: "0.85rem", marginBottom: 3 }}>{name}</div>
-        <div style={{ display: "flex", height: 16, borderRadius: 4, overflow: "hidden", background: "var(--surface-2)" }}>
-          {s.map((x) => (
-            <span
-              key={x.k}
-              title={`${x.label}: xG ${fmtNum(x.v)}`}
-              style={{ width: `${(x.v / total) * 100}%`, background: colors[x.k] }}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  };
-  return (
-    <div className="surface" style={{ padding: "1rem" }}>
-      <Row side="h" name="Heim" />
-      <Row side="a" name="Auswärts" />
-      <p className="muted" style={{ fontSize: "0.8rem", margin: 0 }}>
-        xG nach Spielstand: <span style={{ color: "var(--muted)" }}>unentschieden</span> ·{" "}
-        <span style={{ color: "var(--positive)" }}>in Führung</span> ·{" "}
-        <span style={{ color: "var(--negative)" }}>in Rückstand</span>
-      </p>
-    </div>
-  );
-}
 
 export default async function SpielberichtPage({ params }: { params: Promise<{ matchId: string }> }) {
   const { matchId } = await params;
@@ -115,24 +101,45 @@ export default async function SpielberichtPage({ params }: { params: Promise<{ m
 
   return (
     <>
-      <p className="muted" style={{ marginBottom: "0.25rem", fontSize: "0.9rem" }}>
+      <p className="label" style={{ marginBottom: "0.75rem" }}>
         Spieltag {m.round} · {fmtDate(m.date)}
         {time ? ` · ${time}` : ""}
       </p>
-      <h1 style={{ fontSize: "1.5rem", margin: "0 0 1rem" }}>
-        {m.home} <span className="num">{m.home_goals}:{m.away_goals}</span> {m.away}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto 1fr",
+          alignItems: "center",
+          gap: "1rem",
+          margin: "0 0 2rem",
+        }}
+      >
+        <div style={{ textAlign: "right", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "0.6rem" }}>
+          <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "var(--fs-h3)" }}>{teamName(m.home)}</span>
+          <span style={{ width: 4, height: 44, borderRadius: 999, background: teamColor(m.home).color }} />
+        </div>
+        <div className="display-xl num" style={{ letterSpacing: "-0.03em" }}>
+          {m.home_goals}<span style={{ color: "var(--text-dim)", margin: "0 0.15em" }}>:</span>{m.away_goals}
+        </div>
+        <div style={{ textAlign: "left", display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <span style={{ width: 4, height: 44, borderRadius: 999, background: teamColor(m.away).color }} />
+          <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "var(--fs-h3)" }}>{teamName(m.away)}</span>
+        </div>
+      </div>
+      <h1 style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
+        {teamName(m.home)} {m.home_goals}:{m.away_goals} {teamName(m.away)}
       </h1>
 
-      <Section title="xG-Verlauf">
+      <Section title="xG-Verlauf" info={<Explainer label="">{GLOSSARY.xarace}</Explainer>}>
         <div className="surface" style={{ padding: "0.75rem" }}>
           <XgRace match={m} />
         </div>
       </Section>
 
-      <Section title="Schusskarten">
+      <Section title="Schusskarten" info={<Explainer label="">{GLOSSARY.schusskarte}</Explainer>}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-          <ShotMap shots={m.shots} side="h" label={m.home} />
-          <ShotMap shots={m.shots} side="a" label={m.away} />
+          <ShotMap shots={m.shots} side="h" label={teamName(m.home)} color={teamColor(m.home).color} />
+          <ShotMap shots={m.shots} side="a" label={teamName(m.away)} color={teamColor(m.away).color} />
         </div>
       </Section>
 
@@ -142,7 +149,7 @@ export default async function SpielberichtPage({ params }: { params: Promise<{ m
 
       <Section title="Fazit">
         <div className="surface" style={{ padding: "1rem" }}>
-          <p style={{ margin: 0 }}>{m.verdict}</p>
+          <p style={{ margin: 0 }}>{withTeamNames(m.verdict)}</p>
         </div>
       </Section>
 
@@ -150,8 +157,8 @@ export default async function SpielberichtPage({ params }: { params: Promise<{ m
         <Section title="Aufstellungen">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
             {[
-              { name: m.home, list: home },
-              { name: m.away, list: away },
+              { name: teamName(m.home), list: home },
+              { name: teamName(m.away), list: away },
             ].map((t) => (
               <div key={t.name} className="surface table-scroll">
                 <table>
@@ -183,10 +190,6 @@ export default async function SpielberichtPage({ params }: { params: Promise<{ m
           </div>
         </Section>
       )}
-
-      <Section title="Spielstand">
-        <GameStateBar gsx={m.game_state_xg} />
-      </Section>
 
       {m.model && (
         <Section title="Modell">

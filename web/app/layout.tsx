@@ -1,11 +1,23 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
-import Link from "next/link";
+import { Archivo, Public_Sans } from "next/font/google";
 import "./globals.css";
 import { getManifest } from "@/lib/data";
 import { ServiceWorker } from "@/components/ServiceWorker";
+import { NavBar } from "@/components/NavBar";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const display = Archivo({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const body = Public_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-body",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Bundesliga Hub",
@@ -23,21 +35,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0B0F14",
+  themeColor: "#0D0E11",
   width: "device-width",
   initialScale: 1,
 };
-
-const NAV: { href: string; label: string }[] = [
-  { href: "/", label: "Start" },
-  { href: "/tabelle", label: "Tabelle" },
-  { href: "/team", label: "Teams" },
-  { href: "/spieler", label: "Spieler" },
-  { href: "/modell", label: "Modell" },
-  { href: "/simulation", label: "Simulation" },
-  { href: "/rekorde", label: "Rekorde" },
-  { href: "/methodik", label: "Methodik" },
-];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   let generatedAt = "";
@@ -47,32 +48,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     /* manifest not exported yet */
   }
   return (
-    <html lang="de" className={inter.variable}>
+    <html lang="de" className={`${display.variable} ${body.variable}`}>
       <body>
         <ServiceWorker />
-        <header
-          style={{ borderBottom: "1px solid var(--border)", background: "var(--surface)" }}
-        >
-          <div
-            className="container-page"
-            style={{ display: "flex", alignItems: "center", gap: "1.25rem", height: 56, flexWrap: "wrap" }}
-          >
-            <Link href="/" style={{ fontWeight: 700, letterSpacing: "-0.01em" }}>
-              Bundesliga&nbsp;Hub
-            </Link>
-            <nav style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap" }}>
-              {NAV.map((n) => (
-                <Link key={n.href} href={n.href} className="muted" style={{ fontSize: "0.92rem" }}>
-                  {n.label}
-                </Link>
-              ))}
-            </nav>
-          </div>
-        </header>
-        <main className="container-page" style={{ padding: "1.5rem 1rem 4rem" }}>
+        <div className="noise-overlay" aria-hidden="true" />
+        <NavBar />
+        <main className="container-page" style={{ padding: "1.75rem 1rem 4rem", position: "relative", zIndex: 2 }}>
           {children}
         </main>
-        <footer className="container-page" style={{ padding: "2rem 1rem", fontSize: "0.8rem" }}>
+        <footer
+          className="container-page"
+          style={{ padding: "2rem 1rem", fontSize: "var(--fs-small)", position: "relative", zIndex: 2 }}
+        >
           <p className="muted">
             Daten: Understat (xG, Schüsse) &amp; football-data.co.uk (Anstoßzeiten).
             {generatedAt ? ` Stand: ${generatedAt}.` : ""}

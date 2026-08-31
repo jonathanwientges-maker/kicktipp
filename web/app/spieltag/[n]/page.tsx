@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getManifest, getSeasonMatches } from "@/lib/data";
 import { fmtDate, fmtNum, fmtTime } from "@/lib/format";
+import { teamColor, teamName } from "@/lib/teamColors";
 
 export const dynamicParams = false;
 
@@ -25,37 +26,43 @@ export default async function SpieltagPage({ params }: { params: Promise<{ n: st
 
   return (
     <>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>Spieltag {n}</h1>
+      <h1 style={{ marginBottom: "1.5rem" }}>
+        <span className="display-l num" style={{ marginRight: "0.4rem" }}>{n}.</span>
+        Spieltag
+      </h1>
       <div className="surface table-scroll">
         <table>
           <thead>
             <tr>
               <th>Datum</th>
               <th>Begegnung</th>
-              <th>Ergebnis</th>
-              <th>xG</th>
+              <th className="num">Ergebnis</th>
+              <th className="num">xG</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {list.map((m) => (
               <tr key={m.match_id}>
-                <td>
+                <td className="num muted">
                   {fmtDate(m.date)}
                   {m.time ? ` ${fmtTime(m.time)}` : ""}
                 </td>
-                <td style={{ textAlign: "left" }}>
-                  {m.home} – {m.away}
+                <td>
+                  <span className="team-cell">
+                    <span className="team-bar" style={{ ["--tc" as any]: teamColor(m.home).color }} />
+                    {teamName(m.home)} <span className="muted">–</span> {teamName(m.away)}
+                  </span>
                 </td>
-                <td className="num">
+                <td className="num" style={{ fontWeight: 700 }}>
                   {m.home_goals}:{m.away_goals}
                 </td>
                 <td className="num">
                   {fmtNum(m.home_xg)} : {fmtNum(m.away_xg)}
                 </td>
                 <td>
-                  <Link href={`/spiel/${m.match_id}`} style={{ color: "var(--accent)" }}>
-                    Bericht
+                  <Link href={`/spiel/${m.match_id}`} className="nav-link" style={{ borderBottom: "none" }}>
+                    Bericht →
                   </Link>
                 </td>
               </tr>

@@ -3,6 +3,7 @@ import { Section } from "@/components/Section";
 import { fmtInt, fmtNum, fmtSigned } from "@/lib/format";
 import { ShotMap } from "@/components/charts/ShotMap";
 import { Sparkline } from "@/components/charts/Sparkline";
+import { CountUp } from "@/components/motion/CountUp";
 import Link from "next/link";
 
 export const dynamicParams = false;
@@ -31,25 +32,40 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
 
   return (
     <>
-      <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>{p.player}</h1>
-      <p className="muted" style={{ marginTop: 0 }}>
+      <h1 style={{ marginBottom: "0.4rem" }}>{p.player}</h1>
+      <p className="muted num" style={{ marginTop: 0, marginBottom: "1.5rem", fontSize: "var(--fs-small)" }}>
         {fmtInt(agg.minutes)} Minuten · {fmtInt(agg.appearances)} Spiele · {fmtInt(agg.goals)} Tore ·
         npxG {fmtNum(agg.npxg)} ({fmtSigned(agg.npxg_overperformance)})
       </p>
 
       {enoughMinutes ? (
-        <div className="surface" style={{ padding: "1rem", display: "flex", gap: "2rem", flexWrap: "wrap", marginBottom: "1.5rem" }}>
+        <div
+          className="surface"
+          style={{
+            padding: "1.5rem",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))",
+            gap: "1.5rem",
+            marginBottom: "1.5rem",
+          }}
+        >
           <div>
-            <div className="muted" style={{ fontSize: "0.8rem" }}>npxG pro 90 Minuten</div>
-            <div className="num" style={{ fontSize: "1.3rem" }}>{fmtNum(agg.npxg_per_90)}</div>
+            <div className="label" style={{ marginBottom: "0.35rem" }}>npxG pro 90 Minuten</div>
+            <div className="display-m num">
+              <CountUp value={agg.npxg_per_90} dp={2} />
+            </div>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: "0.8rem" }}>xA pro 90 Minuten</div>
-            <div className="num" style={{ fontSize: "1.3rem" }}>{fmtNum(agg.xa_per_90)}</div>
+            <div className="label" style={{ marginBottom: "0.35rem" }}>xA pro 90 Minuten</div>
+            <div className="display-m num">
+              <CountUp value={agg.xa_per_90} dp={2} />
+            </div>
           </div>
           <div>
-            <div className="muted" style={{ fontSize: "0.8rem" }}>npxG pro Schuss</div>
-            <div className="num" style={{ fontSize: "1.3rem" }}>{fmtNum(agg.npxg_per_shot)}</div>
+            <div className="label" style={{ marginBottom: "0.35rem" }}>npxG pro Schuss</div>
+            <div className="display-m num">
+              <CountUp value={agg.npxg_per_shot} dp={2} />
+            </div>
           </div>
         </div>
       ) : (

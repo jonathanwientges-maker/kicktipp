@@ -1,7 +1,7 @@
 "use client";
-// 18 thin lines, y-axis inverted (1 at top), hover highlights one team
-// (BUILD BLUEPRINT §7.3).
+// 18 thin lines, y-axis inverted (1 at top), hover highlights one team.
 import { useState } from "react";
+import { teamColor, teamName } from "@/lib/teamColors";
 
 const W = 680;
 const H = 340;
@@ -31,10 +31,10 @@ export function PositionOverTime({
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "auto" }} role="img">
       <title>Tabellenplatz im Saisonverlauf</title>
       {[1, 4, 6, 16, 18].map((p) => (
-        <line key={p} x1={PAD.l} y1={ys(p)} x2={W - PAD.r} y2={ys(p)} stroke="var(--border)" strokeDasharray="2 3" />
+        <line key={p} className="chart-grid" x1={PAD.l} y1={ys(p)} x2={W - PAD.r} y2={ys(p)} strokeDasharray="2 3" />
       ))}
       {[1, 4, 6, 16, 18].map((p) => (
-        <text key={p} x={PAD.l - 6} y={ys(p) + 3} fontSize={9} textAnchor="end" fill="var(--muted)">
+        <text key={p} x={PAD.l - 6} y={ys(p) + 3} className="chart-axis-label" textAnchor="end">
           {p}
         </text>
       ))}
@@ -43,24 +43,28 @@ export function PositionOverTime({
         const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${xs(p.matchday)} ${ys(p.position)}`).join(" ");
         const active = hover === team;
         const last = pts[pts.length - 1];
+        const tc = teamColor(team).color;
         return (
           <g key={team} onMouseEnter={() => setHover(team)} onMouseLeave={() => setHover(null)}>
             <path
               d={d}
               fill="none"
-              stroke={active ? "var(--accent)" : "var(--muted)"}
-              strokeWidth={active ? 2.2 : 1}
-              strokeOpacity={hover && !active ? 0.2 : 0.9}
+              stroke={active ? tc : "var(--text-muted)"}
+              strokeWidth={active ? 3 : 1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeOpacity={hover ? (active ? 1 : 0.08) : 0.25}
+              style={{ transition: "stroke-opacity var(--dur-fast) var(--ease-out), stroke-width var(--dur-fast) var(--ease-out)" }}
             />
             {last && (
               <text
                 x={W - PAD.r + 4}
                 y={ys(last.position) + 3}
                 fontSize={9}
-                fill={active ? "var(--accent)" : "var(--muted)"}
-                opacity={hover && !active ? 0.3 : 1}
+                fill={active ? tc : "var(--text-dim)"}
+                opacity={hover && !active ? 0.25 : 1}
               >
-                {team}
+                {teamName(team)}
               </text>
             )}
           </g>

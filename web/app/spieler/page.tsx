@@ -10,17 +10,18 @@ export default function SpielerPage() {
   if (!players.length) {
     return (
       <>
-        <h1 style={{ fontSize: "1.4rem" }}>Spieler</h1>
-        <p className="muted">
-          Für diese Saison liegen noch keine Aufstellungsdaten vor.
-        </p>
+        <h1>Spieler</h1>
+        <p className="muted">Für diese Saison liegen noch keine Aufstellungsdaten vor.</p>
       </>
     );
   }
 
   return (
     <>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>Spieler</h1>
+      <p className="label" style={{ marginBottom: "0.4rem" }}>
+        Saison {season}/{String((season + 1) % 100).padStart(2, "0")}
+      </p>
+      <h1 style={{ marginBottom: "1.5rem" }}>Spieler</h1>
       <PlayerLeaderboard players={players} season={season} />
     </>
   );

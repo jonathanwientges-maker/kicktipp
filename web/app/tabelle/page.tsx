@@ -10,9 +10,12 @@ export default function TabellePage() {
 
   return (
     <>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>Tabelle</h1>
-      <p className="muted" style={{ marginTop: 0 }}>
-        Saison {season}/{(season + 1) % 100} — inklusive xG-Tabelle, xPunkte und Glücksfaktor.
+      <p className="label" style={{ marginBottom: "0.4rem" }}>
+        Saison {season}/{String((season + 1) % 100).padStart(2, "0")}
+      </p>
+      <h1 style={{ marginBottom: "0.35rem" }}>Tabelle</h1>
+      <p className="muted" style={{ marginTop: 0, marginBottom: "1.5rem", fontSize: "var(--fs-small)" }}>
+        Inklusive xG-Tabelle, xPunkte und Glücksfaktor.
       </p>
       <TableToggle table={table} history={history} />
     </>

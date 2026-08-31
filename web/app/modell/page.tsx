@@ -1,7 +1,11 @@
 import { getManifest, getModelPerformance, getPredictedTable, getSeasonTable } from "@/lib/data";
 import { Section } from "@/components/Section";
 import { fmtInt, fmtSignedInt } from "@/lib/format";
+import { teamColor, teamName } from "@/lib/teamColors";
 import { ModelPointsChart } from "@/components/charts/ModelPointsChart";
+import { CountUp } from "@/components/motion/CountUp";
+import { Explainer } from "@/components/Explainer";
+import { GLOSSARY } from "@/lib/glossary";
 
 export const metadata = { title: "Modell — Bundesliga Hub" };
 
@@ -22,68 +26,93 @@ export default function ModellPage() {
 
   return (
     <>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "0.25rem" }}>Modell</h1>
-      <p className="muted" style={{ marginTop: 0 }}>
+      <p className="label" style={{ marginBottom: "0.4rem" }}>Rückblick</p>
+      <h1 style={{ marginBottom: "0.35rem" }}>Modell</h1>
+      <p className="muted" style={{ marginTop: 0, marginBottom: "1.5rem", fontSize: "var(--fs-small)" }}>
         Wie gut hat das Modell die Realität getroffen? Nur abgeschlossene Spieltage.
       </p>
 
-      <Section title="Modell-Tabelle" sub="Tabelle, wenn jeder Modell-Tipp das Ergebnis gewesen wäre.">
+      <Section
+        title="Modell-Tabelle"
+        sub="Tabelle, wenn jeder Modell-Tipp das Ergebnis gewesen wäre."
+        info={<Explainer label="">{GLOSSARY.modelltabelle}</Explainer>}
+      >
         <div className="surface table-scroll">
           <table>
             <thead>
               <tr>
-                <th>#</th>
+                <th className="pos-cell">#</th>
                 <th>Team</th>
-                <th>Pkt (Modell)</th>
-                <th>Pkt (real)</th>
-                <th>Differenz</th>
-                <th>Platz real</th>
+                <th className="num">Pkt (Modell)</th>
+                <th className="num">Pkt (real)</th>
+                <th className="num">Differenz</th>
+                <th className="num">Platz real</th>
               </tr>
             </thead>
             <tbody>
-              {predWithReal.map((r) => (
-                <tr key={r.team}>
-                  <td className="num muted">{r.predPos}</td>
-                  <td style={{ textAlign: "left" }}>{r.team}</td>
-                  <td className="num" style={{ fontWeight: 700 }}>{fmtInt(r.points)}</td>
-                  <td className="num">{fmtInt(r.points_actual)}</td>
-                  <td className="num">{fmtSignedInt(r.points - r.points_actual)}</td>
-                  <td className="num">{r.realPos}</td>
-                </tr>
-              ))}
+              {predWithReal.map((r) => {
+                const d = r.points - r.points_actual;
+                return (
+                  <tr key={r.team}>
+                    <td className="pos-cell">{r.predPos}</td>
+                    <td>
+                      <span className="team-cell">
+                        <span className="team-bar" style={{ ["--tc" as any]: teamColor(r.team).color }} />
+                        {teamName(r.team)}
+                      </span>
+                    </td>
+                    <td className="num" style={{ fontWeight: 700 }}>{fmtInt(r.points)}</td>
+                    <td className="num">{fmtInt(r.points_actual)}</td>
+                    <td
+                      className="num"
+                      style={{ color: d > 0 ? "var(--positive)" : d < 0 ? "var(--negative)" : "var(--text-muted)" }}
+                    >
+                      {fmtSignedInt(d)}
+                    </td>
+                    <td className="num">{r.realPos}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </Section>
 
       {last && (
-        <Section title="Trefferquote" sub="Ergebnis (4) / Tordifferenz (3) / Tendenz (2) / daneben (0).">
-          <div className="surface" style={{ padding: "1rem", display: "flex", gap: "2rem", flexWrap: "wrap" }}>
+        <Section
+          title="Trefferquote"
+          sub="Kicktipp-Wertung je Tipp: exakt getroffenes Ergebnis 4 Punkte, richtige Tordifferenz 3, nur richtige Tendenz (Sieg/Unentschieden/Niederlage) 2, sonst 0. „Basis immer 2:1“ = wie viele Punkte man mit dem Dauer-Tipp 2:1 geholt hätte."
+        >
+          <div
+            className="surface"
+            style={{
+              padding: "1.5rem",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))",
+              gap: "1.5rem 2rem",
+            }}
+          >
             {[
               ["Ergebnis", last.cum_exact],
               ["Tordifferenz", last.cum_gd],
               ["Tendenz", last.cum_tendency],
               ["daneben", last.cum_miss],
+              ["Punkte gesamt", last.cum_points],
+              ["Basis „immer 2:1“", last.cum_always21_points],
             ].map(([label, v]) => (
               <div key={label as string}>
-                <div className="muted" style={{ fontSize: "0.8rem" }}>{label}</div>
-                <div className="num" style={{ fontSize: "1.4rem" }}>{fmtInt(v as number)}</div>
+                <div className="label" style={{ marginBottom: "0.35rem" }}>{label}</div>
+                <div className="display-m num">
+                  <CountUp value={v as number} fmt="int" />
+                </div>
               </div>
             ))}
-            <div>
-              <div className="muted" style={{ fontSize: "0.8rem" }}>Punkte gesamt</div>
-              <div className="num" style={{ fontSize: "1.4rem" }}>{fmtInt(last.cum_points)}</div>
-            </div>
-            <div>
-              <div className="muted" style={{ fontSize: "0.8rem" }}>Basis „immer 2:1“</div>
-              <div className="num" style={{ fontSize: "1.4rem" }}>{fmtInt(last.cum_always21_points)}</div>
-            </div>
           </div>
         </Section>
       )}
 
       <Section title="Punkte kumuliert vs. „immer 2:1“">
-        <div className="surface" style={{ padding: "0.75rem" }}>
+        <div className="surface" style={{ padding: "1rem" }}>
           <ModelPointsChart rows={perf} />
         </div>
       </Section>

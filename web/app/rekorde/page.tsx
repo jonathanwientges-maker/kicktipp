@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getManifest, getRecords } from "@/lib/data";
+import { teamName } from "@/lib/teamColors";
 import { fmtNum } from "@/lib/format";
 
 export const metadata = { title: "Rekorde & Serien — Bundesliga Hub" };
@@ -11,28 +12,34 @@ export default function RekordePage() {
   const { records } = getRecords(season) as { season: number; records: Rec };
 
   const card = (title: string, body: React.ReactNode) => (
-    <div className="surface" style={{ padding: "1rem" }}>
-      <div className="muted" style={{ fontSize: "0.82rem", marginBottom: "0.35rem" }}>{title}</div>
-      <div>{body}</div>
+    <div className="surface surface-hover" style={{ padding: "1.25rem" }}>
+      <div className="label" style={{ marginBottom: "0.5rem" }}>{title}</div>
+      <div style={{ fontFamily: "var(--font-display)", fontWeight: 500 }}>{body}</div>
     </div>
   );
 
   const link = (id: number | undefined, label: string) =>
-    id ? <Link href={`/spiel/${id}`} style={{ color: "var(--accent)" }}>{label}</Link> : label;
+    id ? (
+      <Link href={`/spiel/${id}`} style={{ borderBottom: "1px solid var(--border-strong)" }}>
+        {label}
+      </Link>
+    ) : (
+      label
+    );
 
   return (
     <>
-      <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>Rekorde &amp; Serien</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "0.75rem" }}>
+      <h1 style={{ marginBottom: "1.5rem" }}>Rekorde &amp; Serien</h1>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "0.85rem" }}>
         {records.longest_unbeaten &&
           card(
             "Längste Serie ohne Niederlage",
-            `${records.longest_unbeaten.team ?? "–"} — ${records.longest_unbeaten.length} Spiele`,
+            `${teamName(records.longest_unbeaten.team) ?? "–"} — ${records.longest_unbeaten.length} Spiele`,
           )}
         {records.longest_winless &&
           card(
             "Längste sieglose Serie",
-            `${records.longest_winless.team ?? "–"} — ${records.longest_winless.length} Spiele`,
+            `${teamName(records.longest_winless.team) ?? "–"} — ${records.longest_winless.length} Spiele`,
           )}
         {records.biggest_xg_win &&
           card(
@@ -40,7 +47,7 @@ export default function RekordePage() {
             <>
               {link(
                 records.biggest_xg_win.match_id,
-                `${records.biggest_xg_win.home_team} – ${records.biggest_xg_win.away_team}`,
+                `${teamName(records.biggest_xg_win.home_team)} – ${teamName(records.biggest_xg_win.away_team)}`,
               )}
               <div className="muted num" style={{ fontSize: "0.85rem" }}>
                 xG {fmtNum(records.biggest_xg_win.home_xg)} : {fmtNum(records.biggest_xg_win.away_xg)}
@@ -53,7 +60,7 @@ export default function RekordePage() {
             <>
               {link(
                 records.most_one_sided.match_id,
-                `${records.most_one_sided.home_team} – ${records.most_one_sided.away_team}`,
+                `${teamName(records.most_one_sided.home_team)} – ${teamName(records.most_one_sided.away_team)}`,
               )}
               <div className="muted num" style={{ fontSize: "0.85rem" }}>
                 xG-Verhältnis {fmtNum(records.most_one_sided.xg_ratio, 1)}
@@ -66,7 +73,7 @@ export default function RekordePage() {
             <>
               {link(
                 records.highest_combined_xg.match_id,
-                `${records.highest_combined_xg.home_team} – ${records.highest_combined_xg.away_team}`,
+                `${teamName(records.highest_combined_xg.home_team)} – ${teamName(records.highest_combined_xg.away_team)}`,
               )}
               <div className="muted num" style={{ fontSize: "0.85rem" }}>
                 {fmtNum(records.highest_combined_xg.combined_xg)} xG gesamt
@@ -89,7 +96,7 @@ export default function RekordePage() {
             <>
               {link(
                 records.biggest_luck_swing.match_id,
-                `${records.biggest_luck_swing.home_team} – ${records.biggest_luck_swing.away_team}`,
+                `${teamName(records.biggest_luck_swing.home_team)} – ${teamName(records.biggest_luck_swing.away_team)}`,
               )}
             </>,
           )}

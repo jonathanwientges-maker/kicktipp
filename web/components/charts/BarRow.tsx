@@ -1,14 +1,16 @@
 // A labelled horizontal probability bar, reused on the simulation and
-// model pages (BUILD BLUEPRINT §7.7).
+// model pages. Fill is the team colour when the row is team-attributed.
 import { fmtNum } from "@/lib/format";
+import { teamColor, teamName } from "@/lib/teamColors";
 
 export function BarRow({
   label,
   value,
   max = 1,
-  color = "var(--accent)",
+  color,
   suffix = "%",
   showValue = true,
+  team = true,
 }: {
   label: string;
   value: number;
@@ -16,28 +18,57 @@ export function BarRow({
   color?: string;
   suffix?: string;
   showValue?: boolean;
+  /** when true (default), `label` is treated as a team name and the fill
+      is that club's colour */
+  team?: boolean;
 }) {
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
   const display = suffix === "%" ? fmtNum(value * 100, 1) : fmtNum(value, 1);
+  const fill = color ?? (team ? teamColor(label).color : "var(--accent)");
+  const shown = team ? teamName(label) : label;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "9rem 1fr 3.2rem", alignItems: "center", gap: "0.5rem", padding: "2px 0" }}>
-      <span style={{ fontSize: "0.88rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {label}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "9rem 1fr 3.4rem",
+        alignItems: "center",
+        gap: "0.6rem",
+        padding: "3px 0",
+      }}
+    >
+      <span
+        style={{
+          fontSize: "var(--fs-small)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {shown}
       </span>
-      <span style={{ background: "var(--surface-2)", borderRadius: 4, height: 14, position: "relative", overflow: "hidden" }}>
+      <span
+        style={{
+          background: "var(--surface-raised)",
+          borderRadius: "var(--r-full)",
+          height: 8,
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
         <span
           style={{
             position: "absolute",
-            left: 0,
-            top: 0,
-            bottom: 0,
+            inset: "0 auto 0 0",
             width: `${pct}%`,
-            background: color,
-            borderRadius: 4,
+            background: fill,
+            borderRadius: "var(--r-full)",
           }}
         />
       </span>
-      <span className="num muted" style={{ fontSize: "0.82rem", textAlign: "right" }}>
+      <span
+        className="num"
+        style={{ fontSize: "var(--fs-small)", textAlign: "right", color: "var(--text-muted)" }}
+      >
         {showValue ? `${display}${suffix}` : ""}
       </span>
     </div>

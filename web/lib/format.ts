@@ -58,14 +58,17 @@ export function slugify(team: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-// A green->red scale for the Glücksfaktor, clamped at ±clamp.
-export function luckColor(luck: number, clamp = 8): string {
-  const t = Math.max(-1, Math.min(1, luck / clamp)); // -1..1
-  // positive luck -> green, negative -> red
-  if (t >= 0) {
-    const g = Math.round(120 + t * 40);
-    return `rgb(${Math.round(63 + (1 - t) * 40)}, ${g}, 80)`;
-  }
-  const r = Math.round(200 + -t * 48);
-  return `rgb(${r}, ${Math.round(81 + (1 + t) * 40)}, 73)`;
+// Glücksfaktor text colour: lime-positive vs rose-negative, at full token.
+export function luckColor(luck: number): string {
+  if (luck > 0.05) return "var(--positive)";
+  if (luck < -0.05) return "var(--negative)";
+  return "var(--text-muted)";
+}
+
+// Glücksfaktor pill background: --positive / --negative at an opacity of
+// min(|luck| / 8, 1) * 0.22.
+export function luckPillBg(luck: number): string {
+  const a = Math.min(Math.abs(luck) / 8, 1) * 0.22;
+  const base = luck >= 0 ? "74, 222, 128" : "251, 113, 133"; // --positive / --negative rgb
+  return `rgba(${base}, ${a.toFixed(3)})`;
 }
