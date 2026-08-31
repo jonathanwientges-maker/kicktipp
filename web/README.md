@@ -59,3 +59,5 @@ Understat (xG, shots, rosters), football-data.co.uk (kickoff times). No
 forward-looking model output, probabilities or odds are ever published;
 the only forward-looking artefact is the season simulation, derived from
 Dixon-Coles ratings alone.
+
+<!-- deploy: 2026-08-31T10:19Z CVE-patched build -->
