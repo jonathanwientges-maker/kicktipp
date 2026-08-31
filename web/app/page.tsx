@@ -22,7 +22,7 @@ export default function StartPage() {
   const season = manifest.current_season;
   const md = manifest.latest_round;
   const stat = safe(() => getStatOfWeek());
-  const { matches } = getSeasonMatches(season);
+  const { matches, upcoming: fixtures = [] } = getSeasonMatches(season);
   const { table, history } = getSeasonTable(season);
 
   const played = matches.filter((m) => m.round <= md);
@@ -36,9 +36,8 @@ export default function StartPage() {
   const top5 = luckSorted.slice(0, 5);
   const bottom5 = luckSorted.slice(-5).reverse();
 
-  const upcoming = matches
-    .filter((m) => m.round === md + 1)
-    .slice(0, 9);
+  const nextRound = manifest.next_round || md + 1;
+  const upcoming = fixtures.filter((f) => f.round === nextRound).slice(0, 9);
 
   const teamLast5 = (team: string) => {
     const ms = played
@@ -130,8 +129,20 @@ export default function StartPage() {
               const prev = h2h?.meetings
                 .filter((x) => x.season === season - 1)
                 .slice(-1)[0];
+              // the JSON record is always team_a's perspective; re-orient so
+              // the first figure is THIS fixture's home team.
+              let recHome = 0;
+              let recAway = 0;
+              let recDraw = 0;
+              if (h2h) {
+                const homeIsA = h2h.team_a === m.home;
+                recHome = homeIsA ? h2h.record.a_wins : h2h.record.b_wins;
+                recAway = homeIsA ? h2h.record.b_wins : h2h.record.a_wins;
+                recDraw = h2h.record.draws;
+              }
               const h = teamLast5(m.home);
               const a = teamLast5(m.away);
+              const showSparks = h.xgFor.length >= 2 || a.xgFor.length >= 2;
               return (
                 <Reveal key={m.match_id} index={i} className="surface surface-hover" style={{ padding: "1.05rem", borderLeft: `3px solid ${teamColor(m.home).color}` }}>
                   <div className="label">
@@ -146,21 +157,26 @@ export default function StartPage() {
                       Vorsaison: {teamName(prev.home_team)} {prev.home_goals}:{prev.away_goals} {teamName(prev.away_team)}
                     </div>
                   )}
-                  {h2h && (
-                    <div className="muted num" style={{ fontSize: "var(--fs-small)" }}>
-                      Direkter Vergleich: {h2h.record.a_wins}–{h2h.record.draws}–{h2h.record.b_wins}
+                  {h2h && h2h.record.played > 0 && (
+                    <div className="muted" style={{ fontSize: "var(--fs-small)" }}>
+                      Bilanz: <span className="num">{recHome}</span> S ·{" "}
+                      <span className="num">{recDraw}</span> U ·{" "}
+                      <span className="num">{recAway}</span> N für {teamName(m.home)}
+                      <span style={{ opacity: 0.7 }}> ({h2h.record.played} Spiele)</span>
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: "1.25rem", marginTop: "0.6rem" }}>
-                    <div>
-                      <div className="label">{teamName(m.home)}</div>
-                      <Sparkline values={h.xgFor} color={teamColor(m.home).color} />
+                  {showSparks && (
+                    <div style={{ display: "flex", gap: "1.25rem", marginTop: "0.6rem" }}>
+                      <div>
+                        <div className="label">{teamName(m.home)}</div>
+                        <Sparkline values={h.xgFor} color={teamColor(m.home).color} />
+                      </div>
+                      <div>
+                        <div className="label">{teamName(m.away)}</div>
+                        <Sparkline values={a.xgFor} color={teamColor(m.away).color} />
+                      </div>
                     </div>
-                    <div>
-                      <div className="label">{teamName(m.away)}</div>
-                      <Sparkline values={a.xgFor} color={teamColor(m.away).color} />
-                    </div>
-                  </div>
+                  )}
                 </Reveal>
               );
             })}

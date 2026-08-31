@@ -563,7 +563,9 @@ def _current_streak(matches_df, kind):
     with the longest CURRENT run of that kind, considering each team's
     matches in chronological order from the end."""
     best_team, best_len = None, 0
-    teams = set(matches_df["home_team"]) | set(matches_df["away_team"])
+    # sorted so ties break deterministically (set iteration order is not
+    # stable across runs -> noisy re-exports otherwise)
+    teams = sorted(set(matches_df["home_team"]) | set(matches_df["away_team"]))
     for team in teams:
         tm = matches_df[
             (matches_df["home_team"] == team) | (matches_df["away_team"] == team)

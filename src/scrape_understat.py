@@ -219,6 +219,35 @@ def parse_league_matches(dates_data, season):
     return pd.DataFrame(rows)
 
 
+_UPCOMING_FIXTURE_COLUMNS = [
+    "match_id", "season", "league", "datetime", "home_team", "away_team",
+]
+
+
+def parse_upcoming_fixtures(dates_data, season):
+    """
+    One row per NOT-yet-played fixture in Understat's league `dates`
+    array (isResult == False). Carries only match_id, teams and kickoff
+    datetime -- deliberately no goals, xG or forecast (those are null for
+    unplayed games, and the website must never publish forward-looking
+    numbers). Returns an empty, correctly-shaped frame when every match
+    has been played.
+    """
+    rows = []
+    for m in dates_data:
+        if m.get("isResult", False):
+            continue
+        rows.append({
+            "match_id": int(m["id"]),
+            "season": int(season),
+            "league": config.LEAGUE,
+            "datetime": pd.to_datetime(m["datetime"]),
+            "home_team": m["h"]["title"],
+            "away_team": m["a"]["title"],
+        })
+    return pd.DataFrame(rows, columns=_UPCOMING_FIXTURE_COLUMNS)
+
+
 def parse_match_shots(shots_data, match_id, season):
     """Flatten shotsData {'h': [...], 'a': [...]} into one row per shot."""
     rows = []
@@ -541,9 +570,11 @@ def scrape_season_enriched(league, season, existing_match_ids=None, warnings=Non
     + best-effort team-stats, using ONE getMatchData request per match and
     ONE getLeagueData request for the season.
 
-    Returns (matches_df, shots_df, rosters_df, team_stats_df).
+    Returns (matches_df, shots_df, rosters_df, team_stats_df, fixtures_df).
     team_stats_df is empty (correct schema) when Understat does not expose
     the per-team PPDA/deep block for this season -- never raises for that.
+    fixtures_df is the list of not-yet-played fixtures (teams + kickoff
+    only), empty once the season is complete.
     """
     if warnings is None:
         warnings = []
@@ -555,6 +586,7 @@ def scrape_season_enriched(league, season, existing_match_ids=None, warnings=Non
             "present were {2}".format(league, season, list(league_data.keys()))
         )
     matches_df = parse_league_matches(league_data["dates"], season)
+    fixtures_df = parse_upcoming_fixtures(league_data["dates"], season)
 
     team_block = None
     for key in _TEAM_BLOCK_KEYS:
@@ -569,7 +601,7 @@ def scrape_season_enriched(league, season, existing_match_ids=None, warnings=Non
         )
 
     if len(matches_df) == 0:
-        return matches_df, pd.DataFrame(), pd.DataFrame(), team_stats_df
+        return matches_df, pd.DataFrame(), pd.DataFrame(), team_stats_df, fixtures_df
 
     existing_match_ids = existing_match_ids or set()
     to_fetch = [mid for mid in matches_df["match_id"] if mid not in existing_match_ids]
@@ -578,4 +610,4 @@ def scrape_season_enriched(league, season, existing_match_ids=None, warnings=Non
         to_fetch, season, warnings
     )
     matches_df = matches_df.merge(npxg_df, on="match_id", how="left")
-    return matches_df, shots_df, rosters_df, team_stats_df
+    return matches_df, shots_df, rosters_df, team_stats_df, fixtures_df

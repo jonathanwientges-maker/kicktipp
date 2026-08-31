@@ -29,9 +29,12 @@ export default async function VergleichPage({ params }: { params: Promise<{ a: s
         </h1>
         <span style={{ width: 5, height: 34, borderRadius: 999, background: teamColor(h2h.team_b).color }} />
       </div>
-      <p className="muted num" style={{ marginTop: 0, marginBottom: "2rem", fontSize: "var(--fs-small)" }}>
-        {h2h.record.played} Begegnungen · {h2h.record.a_wins}–{h2h.record.draws}–{h2h.record.b_wins} ·
-        Tore {h2h.aggregate_goals.a}:{h2h.aggregate_goals.b}
+      <p className="muted" style={{ marginTop: 0, marginBottom: "2rem", fontSize: "var(--fs-small)" }}>
+        {h2h.record.played} Begegnungen · aus Sicht von {teamName(h2h.team_a)}:{" "}
+        <span className="num">{h2h.record.a_wins}</span> Siege,{" "}
+        <span className="num">{h2h.record.draws}</span> Remis,{" "}
+        <span className="num">{h2h.record.b_wins}</span> Niederlagen ·{" "}
+        Tore <span className="num">{h2h.aggregate_goals.a}:{h2h.aggregate_goals.b}</span>
       </p>
 
       <h2 style={{ margin: "0 0 0.75rem" }}>Letzte Begegnungen</h2>

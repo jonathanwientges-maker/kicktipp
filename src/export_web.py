@@ -90,6 +90,7 @@ class Bundle(object):
         self.shots = storage.all_understat_shots()
         self.rosters = storage.all_understat_rosters()
         self.team_stats = storage.all_understat_team_stats()
+        self.fixtures = storage.all_understat_fixtures()
         self.odds_d1 = storage.all_odds_d1()
         if len(self.matches):
             self.matches = self.matches.sort_values("datetime").reset_index(drop=True)
@@ -103,6 +104,27 @@ class Bundle(object):
         self.team_stats_available = len(self.team_stats) > 0
         self._odds_by_match = None
         self._backtest = None
+
+    def season_fixtures(self, season):
+        """Not-yet-played fixtures for a season, sorted by kickoff, with a
+        'round' column continuous with that season's played rounds. Teams
+        and kickoff datetime ONLY -- never any xG/odds/probabilities."""
+        if not len(self.fixtures):
+            return pd.DataFrame(
+                columns=["match_id", "season", "datetime", "home_team",
+                         "away_team", "round"]
+            )
+        fx = self.fixtures[self.fixtures["season"] == season].copy()
+        if len(fx) == 0:
+            return fx.assign(round=pd.Series(dtype="int64"))
+        played = self.season_matches(season)[["match_id", "season", "datetime",
+                                              "home_team", "away_team"]]
+        combined = pd.concat([played, fx[["match_id", "season", "datetime",
+                                          "home_team", "away_team"]]],
+                             ignore_index=True)
+        combined["round"] = web_metrics.round_number(combined).values
+        fx_rounds = combined[combined["match_id"].isin(set(fx["match_id"]))]
+        return fx_rounds.sort_values(["round", "datetime"]).reset_index(drop=True)
 
     @property
     def odds_by_match(self):
@@ -283,16 +305,39 @@ def export_manifest(b, warnings):
     if len(b.season_matches(b.current_season)):
         latest_md = int(b.season_matches(b.current_season)["matchday"].max())
         latest_round = int(b.season_matches(b.current_season)["round"].max())
+    fx = b.season_fixtures(b.current_season)
+    next_round = int(fx["round"].min()) if len(fx) else 0
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "current_season": int(b.current_season),
         "latest_matchday": latest_md,
         "latest_round": latest_round,
+        "next_round": next_round,
         "seasons": [int(s) for s in b.seasons],
         "team_stats_available": bool(b.team_stats_available),
         "warnings": list(warnings),
     }
     _write("manifest.json", payload)
+
+
+def _fixture_entries(b, season):
+    """Upcoming-fixture rows for JSON: match_id, round, date, time, home,
+    away. NOTHING else -- no xG, odds or probabilities."""
+    fx = b.season_fixtures(season)
+    out = []
+    for _, r in fx.iterrows():
+        date_str, time_str = web_metrics.kickoff_display(
+            r, b.odds_by_match.get(int(r["match_id"]))
+        )
+        out.append({
+            "match_id": int(r["match_id"]),
+            "round": int(r["round"]),
+            "date": date_str,
+            "time": time_str,
+            "home": r["home_team"],
+            "away": r["away_team"],
+        })
+    return out
 
 
 def export_season_table(b, season):
@@ -324,7 +369,8 @@ def export_season_matches(b, season):
     sm = b.season_matches(season)
     entries = [_match_core(b, m) for _, m in sm.iterrows()]
     _write("season/{0}/matches.json".format(season),
-           {"season": int(season), "matches": entries})
+           {"season": int(season), "matches": entries,
+            "upcoming": _fixture_entries(b, season)})
 
 
 def _xg_race(shots_m):
@@ -602,6 +648,7 @@ def export_team_pages(b, season):
     ss = b.season_shots(season)
     teams = sorted(set(sm["home_team"]) | set(sm["away_team"]))
     xg_lists = web_metrics._shot_xg_lists_by_match_side(ss)
+    fx = b.season_fixtures(season)  # opponent + kickoff only
     for team in teams:
         tmatches = sm[(sm["home_team"] == team) | (sm["away_team"] == team)]
         results = []
@@ -644,6 +691,22 @@ def export_team_pages(b, season):
                 out.append(sum(w) / len(w))
             return out
 
+        upcoming = []
+        if len(fx):
+            tfx = fx[(fx["home_team"] == team) | (fx["away_team"] == team)]
+            for _, r in tfx.iterrows():
+                is_home = r["home_team"] == team
+                date_str, _ = web_metrics.kickoff_display(
+                    r, b.odds_by_match.get(int(r["match_id"]))
+                )
+                upcoming.append({
+                    "opponent": r["away_team"] if is_home else r["home_team"],
+                    "venue": "home" if is_home else "away",
+                    "date": date_str,
+                    "round": int(r["round"]),
+                    "match_id": int(r["match_id"]),
+                })
+
         payload = {
             "season": int(season), "team": team, "slug": _slug(team),
             "results": results,
@@ -655,7 +718,7 @@ def export_team_pages(b, season):
                 "away": {"for": _rolling(roll_for["away"]),
                          "against": _rolling(roll_against["away"])},
             },
-            "upcoming": [],  # opponent + date only; no fixture source for unplayed games
+            "upcoming": upcoming,  # opponent + date only; no probabilities
         }
         if b.team_stats_available:
             ts = b.team_stats[b.team_stats["team"] == team]

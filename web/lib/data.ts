@@ -23,6 +23,8 @@ export interface Manifest {
   latest_matchday: number;
   /** true 1..34 Bundesliga Spieltag of the most recent played round */
   latest_round: number;
+  /** the next unplayed round (0 when the season is over / not started) */
+  next_round: number;
   seasons: number[];
   team_stats_available: boolean;
   warnings: string[];
@@ -81,7 +83,19 @@ export interface MatchEntry {
   home_big_chances: number;
   away_big_chances: number;
 }
-export function getSeasonMatches(season: number): { season: number; matches: MatchEntry[] } {
+export interface UpcomingFixture {
+  match_id: number;
+  round: number;
+  date: string;
+  time: string | null;
+  home: string;
+  away: string;
+}
+export function getSeasonMatches(season: number): {
+  season: number;
+  matches: MatchEntry[];
+  upcoming?: UpcomingFixture[];
+} {
   return readJson(`season/${season}/matches.json`);
 }
 
@@ -271,7 +285,7 @@ export interface TeamPage {
     home: { for: number[]; against: number[] };
     away: { for: number[]; against: number[] };
   };
-  upcoming: { opponent: string; date: string }[];
+  upcoming: { opponent: string; date: string; venue?: "home" | "away"; round?: number; match_id?: number }[];
   ppda_trend?: { date: string; ppda: number | null }[];
   deep_trend?: { date: string; deep: number | null }[];
 }
