@@ -6,17 +6,8 @@ import { teamColor, teamName, withTeamNames } from "@/lib/teamColors";
 import { Section } from "@/components/Section";
 import { Explainer } from "@/components/Explainer";
 import { GLOSSARY } from "@/lib/glossary";
-
-const ROW_INFO: Record<string, keyof typeof GLOSSARY> = {
-  xG: "xg",
-  npxG: "npxg",
-  xPunkte: "xpunkte",
-  "Großchancen": "grosschancen",
-  "Offenes Spiel (xG)": "standardanteil",
-  "Standard (xG)": "standardanteil",
-  PPDA: "ppda",
-  "Zuspiele in Tornähe": "deep",
-};
+import { CompareBlock, type CmpRow } from "@/components/CompareBlock";
+import { Lineups } from "@/components/Lineups";
 
 export const dynamicParams = false;
 
@@ -37,58 +28,39 @@ export async function generateMetadata({ params }: { params: Promise<{ matchId: 
 function NumBlock({ m }: { m: ReturnType<typeof getMatch> }) {
   const sp = m.set_piece_split;
   const teamStats = getManifest().team_stats_available;
-  const rows: [string, string, string][] = [
-    ["Endstand", `${m.home_goals}`, `${m.away_goals}`],
-    ["xG", fmtNum(m.home_xg), fmtNum(m.away_xg)],
-    ["npxG", fmtNum(m.home_npxg), fmtNum(m.away_npxg)],
-    ["xPunkte", fmtNum(m.home_xpoints), fmtNum(m.away_xpoints)],
-    ["Schüsse", fmtInt(m.home_shots), fmtInt(m.away_shots)],
-    ["Großchancen", fmtInt(m.home_big_chances), fmtInt(m.away_big_chances)],
-    ["Offenes Spiel (xG)", fmtNum(sp.home.open_play), fmtNum(sp.away.open_play)],
-    ["Standard (xG)", fmtNum(sp.home.set_piece), fmtNum(sp.away.set_piece)],
-    ["Elfmeter (xG)", fmtNum(sp.home.penalty), fmtNum(sp.away.penalty)],
+  const rows: CmpRow[] = [
+    { label: "Endstand", home: m.home_goals, away: m.away_goals },
+    { label: "xG", home: m.home_xg, away: m.away_xg, homeText: fmtNum(m.home_xg), awayText: fmtNum(m.away_xg), info: "xg" },
+    { label: "npxG", home: m.home_npxg, away: m.away_npxg, homeText: fmtNum(m.home_npxg), awayText: fmtNum(m.away_npxg), info: "npxg" },
+    { label: "xPunkte", home: m.home_xpoints, away: m.away_xpoints, homeText: fmtNum(m.home_xpoints), awayText: fmtNum(m.away_xpoints), info: "xpunkte" },
+    { label: "Schüsse", home: m.home_shots, away: m.away_shots, homeText: fmtInt(m.home_shots), awayText: fmtInt(m.away_shots) },
+    { label: "Großchancen", short: "Großch.", home: m.home_big_chances, away: m.away_big_chances, homeText: fmtInt(m.home_big_chances), awayText: fmtInt(m.away_big_chances), info: "grosschancen" },
+    { label: "Offenes Spiel (xG)", home: sp.home.open_play, away: sp.away.open_play, homeText: fmtNum(sp.home.open_play), awayText: fmtNum(sp.away.open_play), info: "standardanteil" },
+    { label: "Standard (xG)", home: sp.home.set_piece, away: sp.away.set_piece, homeText: fmtNum(sp.home.set_piece), awayText: fmtNum(sp.away.set_piece), info: "standardanteil" },
+    { label: "Elfmeter (xG)", home: sp.home.penalty, away: sp.away.penalty, homeText: fmtNum(sp.home.penalty), awayText: fmtNum(sp.away.penalty) },
   ];
   if (teamStats && m.ppda) {
-    rows.push(["PPDA", fmtNum(m.ppda.home ?? NaN, 1), fmtNum(m.ppda.away ?? NaN, 1)]);
+    rows.push({
+      label: "PPDA",
+      home: m.ppda.home ?? 0,
+      away: m.ppda.away ?? 0,
+      homeText: fmtNum(m.ppda.home ?? NaN, 1),
+      awayText: fmtNum(m.ppda.away ?? NaN, 1),
+      info: "ppda",
+    });
   }
   if (teamStats && m.deep) {
-    rows.push(["Zuspiele in Tornähe", fmtNum(m.deep.home ?? NaN, 0), fmtNum(m.deep.away ?? NaN, 0)]);
+    rows.push({
+      label: "Zuspiele in Tornähe",
+      short: "Tornähe",
+      home: m.deep.home ?? 0,
+      away: m.deep.away ?? 0,
+      homeText: fmtNum(m.deep.home ?? NaN, 0),
+      awayText: fmtNum(m.deep.away ?? NaN, 0),
+      info: "deep",
+    });
   }
-  return (
-    <div className="surface" style={{ padding: "0.25rem 1rem", overflow: "visible" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left" }}></th>
-            <th className="num" style={{ color: "var(--text)", textAlign: "right", padding: "0.6rem 0.7rem" }}>{teamName(m.home)}</th>
-            <th className="num" style={{ color: "var(--text)", textAlign: "right", padding: "0.6rem 0.7rem" }}>{teamName(m.away)}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => {
-            const infoKey = ROW_INFO[r[0]];
-            const cell: React.CSSProperties = {
-              padding: "0.55rem 0.7rem",
-              borderTop: i === 0 ? "none" : "1px solid var(--border)",
-            };
-            return (
-              <tr key={r[0]}>
-                <td className="label" style={{ ...cell, textAlign: "left" }}>
-                  {infoKey ? (
-                    <Explainer label={r[0]}>{GLOSSARY[infoKey]}</Explainer>
-                  ) : (
-                    r[0]
-                  )}
-                </td>
-                <td className="num" style={{ ...cell, textAlign: "right" }}>{r[1]}</td>
-                <td className="num" style={{ ...cell, textAlign: "right" }}>{r[2]}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <CompareBlock home={m.home} away={m.away} rows={rows} />;
 }
 
 
@@ -137,7 +109,7 @@ export default async function SpielberichtPage({ params }: { params: Promise<{ m
       </Section>
 
       <Section title="Schusskarten" info={<Explainer label="">{GLOSSARY.schusskarte}</Explainer>}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+        <div className="shotmap-grid">
           <ShotMap shots={m.shots} side="h" label={teamName(m.home)} color={teamColor(m.home).color} />
           <ShotMap shots={m.shots} side="a" label={teamName(m.away)} color={teamColor(m.away).color} />
         </div>
@@ -155,39 +127,12 @@ export default async function SpielberichtPage({ params }: { params: Promise<{ m
 
       {m.players.length > 0 && (
         <Section title="Aufstellungen">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-            {[
-              { name: teamName(m.home), list: home },
-              { name: teamName(m.away), list: away },
-            ].map((t) => (
-              <div key={t.name} className="surface table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>{t.name}</th>
-                      <th>Min</th>
-                      <th>Tore</th>
-                      <th>xG</th>
-                      <th>xA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {t.list
-                      .sort((a, b) => Number(b.is_starter) - Number(a.is_starter) || b.minutes - a.minutes)
-                      .map((p) => (
-                        <tr key={p.player_id}>
-                          <td>{p.player}</td>
-                          <td className="num">{fmtInt(p.minutes)}</td>
-                          <td className="num">{fmtInt(p.goals)}</td>
-                          <td className="num">{fmtNum(p.xg)}</td>
-                          <td className="num">{fmtNum(p.xa)}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-          </div>
+          <Lineups
+            home={m.home}
+            away={m.away}
+            homePlayers={home}
+            awayPlayers={away}
+          />
         </Section>
       )}
 

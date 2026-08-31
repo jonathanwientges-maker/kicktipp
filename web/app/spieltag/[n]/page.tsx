@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getManifest, getSeasonMatches } from "@/lib/data";
 import { fmtDate, fmtNum, fmtTime } from "@/lib/format";
 import { teamColor, teamName } from "@/lib/teamColors";
+import { TeamChip } from "@/components/TeamChip";
 
 export const dynamicParams = false;
 
@@ -30,7 +31,8 @@ export default async function SpieltagPage({ params }: { params: Promise<{ n: st
         <span className="display-l num" style={{ marginRight: "0.4rem" }}>{n}.</span>
         Spieltag
       </h1>
-      <div className="surface table-scroll">
+      {/* desktop: table */}
+      <div className="surface table-scroll cardlist-desktop">
         <table>
           <thead>
             <tr>
@@ -70,6 +72,31 @@ export default async function SpieltagPage({ params }: { params: Promise<{ n: st
           </tbody>
         </table>
       </div>
+
+      {/* below 768px: stacked cards (BRIEF §7.4) */}
+      <ul className="cardlist cardlist-mobile">
+        {list.map((m) => (
+          <li key={m.match_id} className="surface fixcard">
+            <Link href={`/spiel/${m.match_id}`} style={{ display: "block", padding: "0.9rem 1rem" }}>
+              <div className="label" style={{ marginBottom: "0.5rem" }}>
+                {fmtDate(m.date)}
+                {m.time ? ` · ${fmtTime(m.time)}` : ""}
+              </div>
+              <div className="fixcard-teams">
+                <TeamChip team={m.home} variant="code-name" />
+                <span className="num" style={{ fontWeight: 700 }}>{m.home_goals}</span>
+              </div>
+              <div className="fixcard-teams">
+                <TeamChip team={m.away} variant="code-name" />
+                <span className="num" style={{ fontWeight: 700 }}>{m.away_goals}</span>
+              </div>
+              <div className="muted num" style={{ fontSize: "var(--fs-small)", marginTop: "0.5rem" }}>
+                xG {fmtNum(m.home_xg)} : {fmtNum(m.away_xg)}
+              </div>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }

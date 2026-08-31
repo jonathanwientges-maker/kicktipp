@@ -1,6 +1,7 @@
 import { allH2HSlugs, getH2H } from "@/lib/data";
 import { fmtDate } from "@/lib/format";
 import { teamColor, teamName } from "@/lib/teamColors";
+import { TeamChip } from "@/components/TeamChip";
 
 export const dynamicParams = false;
 
@@ -37,8 +38,8 @@ export default async function VergleichPage({ params }: { params: Promise<{ a: s
         Tore <span className="num">{h2h.aggregate_goals.a}:{h2h.aggregate_goals.b}</span>
       </p>
 
-      <h2 style={{ margin: "0 0 0.75rem" }}>Letzte Begegnungen</h2>
-      <div className="surface table-scroll">
+      <h2 className="sticky-h" style={{ margin: "0 0 0.75rem" }}>Letzte Begegnungen</h2>
+      <div className="surface table-scroll cardlist-desktop">
         <table>
           <thead>
             <tr>
@@ -65,6 +66,23 @@ export default async function VergleichPage({ params }: { params: Promise<{ a: s
           </tbody>
         </table>
       </div>
+
+      {/* below 768px: stacked cards (BRIEF §7.4) */}
+      <ul className="cardlist cardlist-mobile">
+        {[...h2h.meetings].reverse().map((m) => (
+          <li key={m.match_id} className="surface fixcard" style={{ padding: "0.9rem 1rem" }}>
+            <div className="label" style={{ marginBottom: "0.5rem" }}>{fmtDate(m.date)}</div>
+            <div className="fixcard-teams">
+              <TeamChip team={m.home_team} variant="code-name" />
+              <span className="num" style={{ fontWeight: 700 }}>{m.home_goals}</span>
+            </div>
+            <div className="fixcard-teams">
+              <TeamChip team={m.away_team} variant="code-name" />
+              <span className="num" style={{ fontWeight: 700 }}>{m.away_goals}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }

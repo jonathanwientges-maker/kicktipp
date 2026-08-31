@@ -16,6 +16,7 @@ import { teamColor, teamName, withTeamNames } from "@/lib/teamColors";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { Reveal } from "@/components/motion/Reveal";
 import { CountUp } from "@/components/motion/CountUp";
+import { TeamChip } from "@/components/TeamChip";
 
 export default function StartPage() {
   const manifest = getManifest();
@@ -97,20 +98,20 @@ export default function StartPage() {
         sub="Top 5 und Flop 5 nach Abweichung Punkte − xPunkte."
         info={<Explainer label="">{GLOSSARY.gluecksfaktor}</Explainer>}
       >
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+        <div className="perf-boards">
           {[
             { name: "Überperformer", rows: top5 },
             { name: "Unterperformer", rows: bottom5 },
           ].map((grp) => (
             <div key={grp.name} className="surface" style={{ padding: "1rem" }}>
-              <div className="label" style={{ marginBottom: "0.6rem" }}>{grp.name}</div>
-              {grp.rows.map((r) => (
-                <div key={r.team} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0" }}>
-                  <Link href={`/team/${slugify(r.team)}`} className="team-cell">
-                    <span className="team-bar" style={{ ["--tc" as any]: teamColor(r.team).color }} />
-                    {teamName(r.team)}
+              <h3 style={{ margin: "0 0 0.6rem" }}>{grp.name}</h3>
+              {grp.rows.map((r, i) => (
+                <div key={r.team} className="perf-row">
+                  <span className="perf-rank">{i + 1}</span>
+                  <Link href={`/team/${slugify(r.team)}`} style={{ minWidth: 0 }}>
+                    <TeamChip team={r.team} variant="code-name" />
                   </Link>
-                  <span className="num" style={{ color: luckColor(r.luck), fontWeight: 600 }}>
+                  <span className="perf-val" style={{ color: luckColor(r.luck) }}>
                     {fmtSigned(r.luck, 1)}
                   </span>
                 </div>

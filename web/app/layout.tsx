@@ -56,7 +56,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ServiceWorker />
         <div className="noise-overlay" aria-hidden="true" />
         <NavBar />
-        <main className="container-page" style={{ padding: "1.75rem 1rem 4rem", position: "relative", zIndex: 2 }}>
+        <main
+          className="container-page"
+          style={{
+            padding: "1.75rem 1rem 4rem",
+            paddingBottom: "calc(4rem + env(safe-area-inset-bottom))",
+            position: "relative",
+            zIndex: 2,
+          }}
+        >
           {children}
         </main>
         <footer

@@ -14,7 +14,10 @@ export function Section({
 }) {
   return (
     <section style={{ marginBottom: "2.5rem" }}>
-      <h2 style={{ margin: "0 0 0.15rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+      <h2
+        className="sticky-h"
+        style={{ margin: "0 0 0.15rem", display: "flex", alignItems: "center", gap: "0.5rem" }}
+      >
         {title}
         {info}
       </h2>
