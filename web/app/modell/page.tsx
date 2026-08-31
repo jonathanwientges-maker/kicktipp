@@ -1,11 +1,11 @@
 import { getManifest, getModelPerformance, getPredictedTable, getSeasonTable } from "@/lib/data";
 import { Section } from "@/components/Section";
 import { fmtInt, fmtSignedInt } from "@/lib/format";
-import { teamColor, teamName } from "@/lib/teamColors";
 import { ModelPointsChart } from "@/components/charts/ModelPointsChart";
 import { CountUp } from "@/components/motion/CountUp";
 import { Explainer } from "@/components/Explainer";
 import { GLOSSARY } from "@/lib/glossary";
+import { TeamChip } from "@/components/TeamChip";
 
 export const metadata = { title: "Modell — Bundesliga Hub" };
 
@@ -56,9 +56,13 @@ export default function ModellPage() {
                   <tr key={r.team}>
                     <td className="pos-cell">{r.predPos}</td>
                     <td>
-                      <span className="team-cell">
-                        <span className="team-bar" style={{ ["--tc" as any]: teamColor(r.team).color }} />
-                        {teamName(r.team)}
+                      <span className="team-cell" style={{ minWidth: 0 }}>
+                        <span className="dt-full">
+                          <TeamChip team={r.team} variant="full" />
+                        </span>
+                        <span className="dt-code">
+                          <TeamChip team={r.team} variant="code" />
+                        </span>
                       </span>
                     </td>
                     <td className="num" style={{ fontWeight: 700 }}>{fmtInt(r.points)}</td>

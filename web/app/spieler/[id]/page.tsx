@@ -113,9 +113,9 @@ export default async function PlayerPage({ params }: { params: Promise<{ id: str
             <thead>
               <tr>
                 <th>Spiel</th>
-                <th>npxG</th>
-                <th>Tore</th>
-                <th>Schüsse</th>
+                <th className="num">npxG</th>
+                <th className="num">Tore</th>
+                <th className="num">Schüsse</th>
               </tr>
             </thead>
             <tbody>

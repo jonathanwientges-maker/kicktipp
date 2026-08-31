@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { getManifest, getTeamPage, getTeamSlugs } from "@/lib/data";
 import { Section } from "@/components/Section";
-import { fmtNum, fmtSigned } from "@/lib/format";
+import { fmtNum } from "@/lib/format";
 import { teamColor, teamName } from "@/lib/teamColors";
+import { TeamChip } from "@/components/TeamChip";
 import { RollingToggle } from "@/components/RollingToggle";
 import { Sparkline } from "@/components/charts/Sparkline";
 import { CountUp } from "@/components/motion/CountUp";
@@ -109,9 +110,13 @@ export default async function TeamDetail({ params }: { params: Promise<{ slug: s
                 <tr key={r.match_id}>
                   <td className="pos-cell">{r.matchday}</td>
                   <td>
-                    <Link href={`/spiel/${r.match_id}`} className="team-cell">
-                      <span className="team-bar" style={{ ["--tc" as any]: teamColor(r.opponent).color }} />
-                      {teamName(r.opponent)}
+                    <Link href={`/spiel/${r.match_id}`} className="team-cell" style={{ minWidth: 0 }}>
+                      <span className="dt-full">
+                        <TeamChip team={r.opponent} variant="full" />
+                      </span>
+                      <span className="dt-code">
+                        <TeamChip team={r.opponent} variant="code" />
+                      </span>
                     </Link>
                   </td>
                   <td>{r.venue === "home" ? "H" : "A"}</td>

@@ -8,6 +8,8 @@ import { PositionOverTime } from "./charts/PositionOverTime";
 import { Reveal } from "./motion/Reveal";
 import { Explainer } from "./Explainer";
 import { GLOSSARY } from "@/lib/glossary";
+import { TeamChip } from "./TeamChip";
+import { DataTable, type Col, type ColumnSet } from "./DataTable";
 
 type View = "points" | "xg" | "xgdiff";
 
@@ -40,6 +42,97 @@ export function TableToggle({
 
   const regressionTeams = table.filter((t) => Math.abs(t.luck) > 5);
 
+  type R = TableRow & { id: string; pos: number };
+  const rows: R[] = sorted.map((r, i) => ({ ...r, id: r.team, pos: i + 1 }));
+
+  const barCell = (val: number, max: number, tc: string, dp = 1) => (
+    <span className="bar-cell" style={{ ["--tc" as any]: tc, display: "block", position: "relative" }}>
+      <span className="bar-fill" style={{ width: `${(val / max) * 100}%` }} />
+      <span className="bar-val">{fmtNum(val, dp)}</span>
+    </span>
+  );
+
+  const columns: Col<R>[] = [
+    { key: "played", label: "Sp", numeric: true, render: (r) => fmtInt(r.played) },
+    { key: "won", label: "S", numeric: true, render: (r) => fmtInt(r.won) },
+    { key: "drawn", label: "U", numeric: true, render: (r) => fmtInt(r.drawn) },
+    { key: "lost", label: "N", numeric: true, render: (r) => fmtInt(r.lost) },
+    {
+      key: "goals",
+      label: "Tore",
+      numeric: true,
+      render: (r) => `${fmtInt(r.goals_for)}:${fmtInt(r.goals_against)}`,
+    },
+    { key: "goal_diff", label: "Diff", numeric: true, render: (r) => fmtSignedInt(r.goal_diff) },
+    {
+      key: "points",
+      label: "Pkt",
+      numeric: true,
+      render: (r) => <span style={{ fontWeight: 700 }}>{fmtInt(r.points)}</span>,
+    },
+    {
+      key: "xg_for",
+      label: "xG",
+      numeric: true,
+      render: (r) => barCell(r.xg_for, maxXgFor, teamColor(r.team).color),
+    },
+    {
+      key: "xg_against",
+      label: "xGA",
+      numeric: true,
+      render: (r) => barCell(r.xg_against, maxXgAgainst, teamColor(r.team).color),
+    },
+    { key: "xg_diff", label: "xG-Diff", numeric: true, render: (r) => fmtSigned(r.xg_diff, 1) },
+    {
+      key: "xpoints",
+      label: "xPunkte",
+      numeric: true,
+      render: (r) => barCell(r.xpoints, maxXpts, teamColor(r.team).color),
+    },
+    {
+      key: "luck",
+      label: "Glücksfaktor",
+      numeric: true,
+      render: (r) => (
+        <span
+          className="luck-pill"
+          style={{ background: luckPillBg(r.luck), color: luckColor(r.luck) }}
+        >
+          {fmtSigned(r.luck, 1)}
+        </span>
+      ),
+    },
+  ];
+
+  const columnSets: ColumnSet[] = [
+    { label: "Basis", keys: ["played", "won", "drawn", "lost", "goals", "goal_diff", "points"] },
+    { label: "xG", keys: ["played", "xg_for", "xg_against", "xg_diff", "xpoints"] },
+    { label: "Form", keys: ["played", "points", "xpoints", "luck"] },
+  ];
+
+  const identifierHeader = (
+    <>
+      <th className="pos-cell">#</th>
+      <th>Team</th>
+    </>
+  );
+
+  const renderIdentifier = (r: R) => (
+    <>
+      <td className="pos-cell">{r.pos}</td>
+      <td>
+        <Link href={`/team/${slugify(r.team)}`} className="team-cell" style={{ minWidth: 0 }}>
+          <span className="dt-full">
+            <TeamChip team={r.team} variant="full" />
+          </span>
+          <span className="dt-code">
+            <TeamChip team={r.team} variant="code" />
+          </span>
+        </Link>
+      </td>
+    </>
+  );
+
   return (
     <>
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", flexWrap: "wrap" }}>
@@ -71,79 +164,16 @@ export function TableToggle({
         {view !== "points" && <Explainer label="xG-Tabelle">{GLOSSARY.xgtabelle}</Explainer>}
       </div>
 
-      <div className="surface table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th className="pos-cell">#</th>
-              <th>Team</th>
-              <th className="num">Sp</th>
-              <th className="num">S</th>
-              <th className="num">U</th>
-              <th className="num">N</th>
-              <th className="num">Tore</th>
-              <th className="num">Diff</th>
-              <th className="num">Pkt</th>
-              <th className="num">xG</th>
-              <th className="num">xGA</th>
-              <th className="num">xG-Diff</th>
-              <th className="num">xPunkte</th>
-              <th className="num">Glücksfaktor</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r, i) => {
-              const tc = teamColor(r.team).color;
-              return (
-                <tr key={r.team} data-zone={view === "points" ? zone(i + 1) : undefined}>
-                  <td className="pos-cell">{i + 1}</td>
-                  <td>
-                    <Link href={`/team/${slugify(r.team)}`} className="team-cell">
-                      <span className="team-bar" style={{ ["--tc" as any]: tc }} />
-                      {teamName(r.team)}
-                    </Link>
-                  </td>
-                  <td className="num">{fmtInt(r.played)}</td>
-                  <td className="num">{fmtInt(r.won)}</td>
-                  <td className="num">{fmtInt(r.drawn)}</td>
-                  <td className="num">{fmtInt(r.lost)}</td>
-                  <td className="num">
-                    {fmtInt(r.goals_for)}:{fmtInt(r.goals_against)}
-                  </td>
-                  <td className="num">{fmtSignedInt(r.goal_diff)}</td>
-                  <td className="num" style={{ fontWeight: 700 }}>
-                    {fmtInt(r.points)}
-                  </td>
-                  <td className="num bar-cell" style={{ ["--tc" as any]: tc }}>
-                    <span className="bar-fill" style={{ width: `${(r.xg_for / maxXgFor) * 100}%` }} />
-                    <span className="bar-val">{fmtNum(r.xg_for, 1)}</span>
-                  </td>
-                  <td className="num bar-cell" style={{ ["--tc" as any]: tc }}>
-                    <span
-                      className="bar-fill"
-                      style={{ width: `${(r.xg_against / maxXgAgainst) * 100}%` }}
-                    />
-                    <span className="bar-val">{fmtNum(r.xg_against, 1)}</span>
-                  </td>
-                  <td className="num">{fmtSigned(r.xg_diff, 1)}</td>
-                  <td className="num bar-cell" style={{ ["--tc" as any]: tc }}>
-                    <span className="bar-fill" style={{ width: `${(r.xpoints / maxXpts) * 100}%` }} />
-                    <span className="bar-val">{fmtNum(r.xpoints, 1)}</span>
-                  </td>
-                  <td className="num">
-                    <span
-                      className="luck-pill"
-                      style={{ background: luckPillBg(r.luck), color: luckColor(r.luck) }}
-                    >
-                      {fmtSigned(r.luck, 1)}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        columnSets={columnSets}
+        identifierHeader={identifierHeader}
+        renderIdentifier={renderIdentifier}
+        rowProps={(r) => ({
+          "data-zone": view === "points" ? zone(r.pos) : undefined,
+        })}
+      />
 
       {view === "points" && (
         <div
@@ -170,14 +200,18 @@ export function TableToggle({
         </div>
       )}
 
-      <h2 style={{ margin: "2.5rem 0 0.75rem" }}>Tabellenplatz im Verlauf</h2>
+      <h2 className="sticky-h" style={{ margin: "2.5rem 0 0.75rem" }}>
+        Tabellenplatz im Verlauf
+      </h2>
       <Reveal className="surface" style={{ padding: "1rem" }}>
         <PositionOverTime history={history} />
       </Reveal>
 
       {regressionTeams.length > 0 && (
         <>
-          <h2 style={{ margin: "2.5rem 0 0.75rem" }}>Regressionswarnung</h2>
+          <h2 className="sticky-h" style={{ margin: "2.5rem 0 0.75rem" }}>
+            Regressionswarnung
+          </h2>
           <div className="surface" style={{ padding: "1.25rem" }}>
             <p style={{ margin: "0 0 0.5rem", fontWeight: 500 }}>
               {regressionTeams

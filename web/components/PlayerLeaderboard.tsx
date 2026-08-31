@@ -5,11 +5,66 @@ import type { PlayerAgg } from "@/lib/data";
 import { fmtInt, fmtNum, fmtSigned } from "@/lib/format";
 import { Explainer } from "@/components/Explainer";
 import { GLOSSARY } from "@/lib/glossary";
+import { DataTable, type Col, type ColumnSet } from "@/components/DataTable";
 
 export function PlayerLeaderboard({ players, season }: { players: PlayerAgg[]; season: number }) {
   const [includeLow, setIncludeLow] = useState(false);
   const rows = (includeLow ? players : players.filter((p) => !p.low_minutes)).slice(0, 60);
   const maxNpxg = Math.max(...players.map((p) => p.npxg), 0.01);
+
+  type R = PlayerAgg & { id: number };
+  const data: R[] = rows.map((p) => ({ ...p, id: p.player_id }));
+
+  const columns: Col<R>[] = [
+    { key: "minutes", label: "Min", numeric: true, render: (p) => fmtInt(p.minutes) },
+    { key: "goals", label: "Tore", numeric: true, render: (p) => fmtInt(p.goals) },
+    {
+      key: "npxg",
+      label: "npxG",
+      numeric: true,
+      render: (p) => (
+        <span
+          className="bar-cell"
+          style={{ ["--tc" as any]: "var(--accent-dim)", display: "block", position: "relative" }}
+        >
+          <span className="bar-fill" style={{ width: `${(p.npxg / maxNpxg) * 100}%` }} />
+          <span className="bar-val">{fmtNum(p.npxg)}</span>
+        </span>
+      ),
+    },
+    { key: "xa", label: "xA", numeric: true, render: (p) => fmtNum(p.xa) },
+    {
+      key: "npxg_per_90",
+      label: "npxG/90",
+      numeric: true,
+      render: (p) => (p.minutes >= 450 ? fmtNum(p.npxg_per_90) : "–"),
+    },
+    {
+      key: "npxg_overperformance",
+      label: "Δ Tore−npxG",
+      numeric: true,
+      render: (p) => (
+        <span
+          style={{
+            color:
+              p.npxg_overperformance > 0.05
+                ? "var(--positive)"
+                : p.npxg_overperformance < -0.05
+                  ? "var(--negative)"
+                  : "var(--text-muted)",
+          }}
+        >
+          {fmtSigned(p.npxg_overperformance)}
+        </span>
+      ),
+    },
+  ];
+
+  // identifier column pinned; remaining 6 columns split into groups of ≤5
+  const columnSets: ColumnSet[] = [
+    { label: "Torgefahr", keys: ["minutes", "goals", "npxg", "xa", "npxg_per_90"] },
+    { label: "Δ", keys: ["minutes", "goals", "npxg_overperformance"] },
+  ];
 
   return (
     <>
@@ -20,13 +75,14 @@ export function PlayerLeaderboard({ players, season }: { players: PlayerAgg[]; s
           gap: "0.5rem",
           marginBottom: "1rem",
           fontSize: "var(--fs-small)",
+          minHeight: 44,
         }}
       >
         <input
           type="checkbox"
           checked={includeLow}
           onChange={(e) => setIncludeLow(e.target.checked)}
-          style={{ accentColor: "var(--accent)" }}
+          style={{ accentColor: "var(--accent)", width: 18, height: 18 }}
         />
         Spieler mit wenig Spielzeit einbeziehen
       </label>
@@ -50,54 +106,18 @@ export function PlayerLeaderboard({ players, season }: { players: PlayerAgg[]; s
         </Explainer>
       </div>
 
-      <div className="surface table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Spieler</th>
-              <th className="num">Min</th>
-              <th className="num">Tore</th>
-              <th className="num">npxG</th>
-              <th className="num">xA</th>
-              <th className="num">npxG/90</th>
-              <th className="num">Δ Tore−npxG</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) => (
-              <tr key={p.player_id}>
-                <td style={{ fontWeight: 500 }}>
-                  <Link href={`/spieler/${p.player_id}?s=${season}`}>{p.player}</Link>
-                </td>
-                <td className="num">{fmtInt(p.minutes)}</td>
-                <td className="num">{fmtInt(p.goals)}</td>
-                <td
-                  className="num bar-cell"
-                  style={{ ["--tc" as any]: "var(--accent-dim)" }}
-                >
-                  <span className="bar-fill" style={{ width: `${(p.npxg / maxNpxg) * 100}%` }} />
-                  <span className="bar-val">{fmtNum(p.npxg)}</span>
-                </td>
-                <td className="num">{fmtNum(p.xa)}</td>
-                <td className="num">{p.minutes >= 450 ? fmtNum(p.npxg_per_90) : "–"}</td>
-                <td
-                  className="num"
-                  style={{
-                    color:
-                      p.npxg_overperformance > 0.05
-                        ? "var(--positive)"
-                        : p.npxg_overperformance < -0.05
-                          ? "var(--negative)"
-                          : "var(--text-muted)",
-                  }}
-                >
-                  {fmtSigned(p.npxg_overperformance)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        columns={columns}
+        rows={data}
+        columnSets={columnSets}
+        identifierColSpan={1}
+        identifierHeader={<th>Spieler</th>}
+        renderIdentifier={(p) => (
+          <td style={{ fontWeight: 500, textAlign: "left" }}>
+            <Link href={`/spieler/${p.player_id}?s=${season}`}>{p.player}</Link>
+          </td>
+        )}
+      />
     </>
   );
 }

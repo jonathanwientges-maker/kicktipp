@@ -18,6 +18,7 @@ export function Explainer({ label, children }: { label: string; children: React.
         aria-controls={id}
         aria-label={`Erklärung: ${label}`}
         onClick={() => setOpen((v) => !v)}
+        className="explainer-btn"
         style={{
           width: 16,
           height: 16,
@@ -32,6 +33,7 @@ export function Explainer({ label, children }: { label: string; children: React.
           cursor: "pointer",
           padding: 0,
           flex: "0 0 auto",
+          position: "relative",
         }}
       >
         ?
