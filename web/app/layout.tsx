@@ -29,8 +29,11 @@ export const metadata: Metadata = {
     title: "BL Hub",
   },
   icons: {
-    icon: "/icons/icon-192.png",
-    apple: "/icons/icon-192.png",
+    icon: [
+      { url: "/icons/icon-192.jpg", sizes: "192x192", type: "image/jpeg" },
+      { url: "/icons/icon-512.jpg", sizes: "512x512", type: "image/jpeg" },
+    ],
+    apple: { url: "/icons/apple-touch-icon.jpg", sizes: "180x180", type: "image/jpeg" },
   },
 };
 
