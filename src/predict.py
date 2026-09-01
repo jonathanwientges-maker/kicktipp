@@ -599,14 +599,9 @@ def main():
         season_points_df = pd.DataFrame(columns=["model_points", "always21_points", "market_ev_points"])
 
     season_tracker_div = report.season_tracker_html(season_points_df, div_id="season-tracker")
-    season_stats = {
-        "matchdays": len(season_points_df),
-        "points_per_matchday": (
-            season_points_df["model_points"].mean() if len(season_points_df) else 0.0
-        ),
-        "exact_hits": int(season_points_df.get("exact_hit", pd.Series(dtype=int)).sum()),
-        "gd_hits": int(season_points_df.get("gd_hit", pd.Series(dtype=int)).sum()),
-    }
+    # season_points.csv is one row per MATCH; the tracker reports per
+    # MATCHDAY (9 matches). report.season_summary_stats does the grouping.
+    season_stats = report.season_summary_stats(season_points_df)
 
     latest_understat_date = matches["datetime"].max()
     odds_file_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
