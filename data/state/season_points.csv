@@ -1,0 +1,10 @@
+match_id,season,datetime,home_team,away_team,model_tip,model_points,always21_points,market_ev_points,exact_hit,gd_hit,tendency_hit
+32247,2026,2026-08-28 18:30:00,Bayern Munich,VfB Stuttgart,3-1,2,2,2,0,0,1
+32248,2026,2026-08-29 13:30:00,Union Berlin,Eintracht Frankfurt,1-2,0,0,0,0,0,0
+32249,2026,2026-08-29 13:30:00,FC Cologne,Hoffenheim,1-2,0,3,0,0,0,0
+32250,2026,2026-08-29 13:30:00,RasenBallsport Leipzig,Borussia M.Gladbach,2-1,2,2,2,0,0,1
+32251,2026,2026-08-29 13:30:00,Mainz 05,Paderborn,2-1,0,0,0,0,0,0
+32758,2026,2026-08-29 13:30:00,Elversberg,Bayer Leverkusen,1-2,0,3,0,0,0,0
+32252,2026,2026-08-29 16:30:00,Borussia Dortmund,Hamburger SV,2-0,4,2,4,1,1,1
+32253,2026,2026-08-30 13:30:00,Freiburg,Werder Bremen,2-1,2,2,2,0,0,1
+32254,2026,2026-08-30 15:30:00,Augsburg,Schalke 04,2-1,2,2,2,0,0,1
