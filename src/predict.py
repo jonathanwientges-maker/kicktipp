@@ -337,6 +337,142 @@ def kickoff_timestamps(fixtures_df, date_col="Date", time_col="Time"):
     return pd.Series(kickoffs, index=fixtures_df.index)
 
 
+def understat_fixture_fallback(now, window_end, known_fd_names, warnings):
+    """
+    Backup fixture source for when fixtures.csv carries no usable D1 row
+    for the upcoming window (football-data.co.uk drops the Bundesliga
+    block entirely during international breaks and early in a season).
+
+    Reads the Understat fixture partition written every run by
+    refresh_current_season_data(), keeps matches whose kickoff falls in
+    [now, window_end], and returns them shaped like the `upcoming` frame
+    the rest of predict_fixtures() consumes: columns HomeTeam / AwayTeam
+    (football-data names, via the crosswalk), kickoff_ts, and a Time
+    string (German local HH:MM, so the report shows the real kickoff and
+    not just the date). No odds columns -- market lambdas degrade to NaN
+    and blend.py renormalises onto xG + DC, which is already handled.
+
+    Understat `datetime` is stored tz-naive UTC (confirmed against
+    completed matchdays: a 20:30 CEST kickoff is stored as 18:30). The
+    rest of this module works in German local time, so it is converted
+    here -- and unlike fixtures.csv there is no UK-vs-German +1h offset to
+    undo, Understat times are already correct once shifted to Berlin.
+    """
+    empty = pd.DataFrame(columns=["HomeTeam", "AwayTeam", "kickoff_ts", "Time"])
+    fx = storage.understat_fixtures(config.CURRENT_SEASON)
+    if fx is None or len(fx) == 0:
+        return empty
+
+    fx = fx.copy()
+    kickoff_local = (
+        fx["datetime"].dt.tz_localize("UTC").dt.tz_convert("Europe/Berlin").dt.tz_localize(None)
+    )
+    fx["kickoff_ts"] = kickoff_local
+    fx["Time"] = kickoff_local.dt.strftime("%H:%M")
+    fx = fx[(fx["kickoff_ts"] >= now) & (fx["kickoff_ts"] <= window_end)].copy()
+    if len(fx) == 0:
+        return empty
+
+    try:
+        fx["HomeTeam"] = fx["home_team"].map(
+            lambda n: crosswalk.to_fd_name(n, known_fd_names=known_fd_names)
+        )
+        fx["AwayTeam"] = fx["away_team"].map(
+            lambda n: crosswalk.to_fd_name(n, known_fd_names=known_fd_names)
+        )
+    except crosswalk.UnresolvedTeamNameError as exc:
+        warnings.append(
+            "Understat fixture fallback: unresolved team name ({0}). "
+            "Add it to UNDERSTAT_TO_FD in src/crosswalk.py.".format(exc)
+        )
+        return empty
+
+    return fx[["HomeTeam", "AwayTeam", "kickoff_ts", "Time"]].sort_values("kickoff_ts")
+
+
+def _predict_one_fixture(fx, known_fd_names, xg_enriched, dc_fit, tuned):
+    """Blend the three lambda sources for a single upcoming fixture and
+    build its report context. `fx` is a row with HomeTeam / AwayTeam /
+    kickoff_ts, optionally a Time and odds columns (absent for the
+    Understat fallback -> market lambdas come back NaN, handled by
+    blend.py)."""
+    home_fd, away_fd = fx["HomeTeam"], fx["AwayTeam"]
+
+    lam_market = market.compute_market_lambdas(fx)
+
+    lam_xg = team_rolling_lambda_for_fixture(home_fd, away_fd, xg_enriched, known_fd_names)
+
+    home_understat = _fd_to_understat(home_fd)
+    away_understat = _fd_to_understat(away_fd)
+    lam_dc = dc.dc_lambdas(dc_fit, home_understat, away_understat)
+
+    weights = tuple(tuned["weights"])
+    lam_h, lam_a = blend.blend_log_lambda(lam_market, lam_xg, lam_dc, weights)
+
+    dispersion = (0.05, 0.05) if tuned.get("use_negbin") else None
+    grid = blend.build_final_grid(
+        lam_h, lam_a, dc_fit["rho"], use_negbin=tuned.get("use_negbin", False),
+        dispersion=dispersion,
+    )
+    rec = optimizer.recommend_tip(grid, draw_margin=tuned.get("draw_margin", config.DRAW_MARGIN))
+
+    mkt_probs = None
+    odds_1x2 = market.pick_1x2_odds(fx)
+    if odds_1x2 is not None:
+        mkt_probs = tuple(market.shin_probabilities(odds_1x2))
+
+    kickoff_cet = _to_cet_string(fx["kickoff_ts"], fx.get("Time"))
+    fixture_row = {"home_team": home_fd, "away_team": away_fd, "kickoff_cet": kickoff_cet}
+
+    ctx = report.build_match_context(fixture_row, rec, lam_market, lam_xg, lam_dc, mkt_probs)
+    # DST-corrected kickoff timestamp (pd.Timestamp, Europe/Berlin,
+    # tz-naive) -- kicktipp_submit uses it for the "too close to
+    # kickoff" guard; not shown in the report.
+    ctx["kickoff_ts"] = fx["kickoff_ts"]
+    ctx["heatmap_div"] = report.heatmap_html(
+        grid, div_id="grid-{0}-{1}".format(home_fd, away_fd).replace(" ", "_")
+    )
+    return ctx
+
+
+def fixture_source_warning(meta, n_contexts):
+    """The report's fixture-source line. Returns "" when the CSV supplied
+    fixtures normally (nothing to warn about), otherwise one of three
+    strings so a reader can tell apart:
+      - Understat fallback used (tips built, but with no market odds);
+      - fixtures.csv has NO D1 block at all and Understat had nothing
+        either (upstream data-source failure, not a real break);
+      - fixtures.csv has a D1 block but none in the window (matchday
+        break -- expected, benign).
+    """
+    n = FIXTURE_WINDOW_DAYS
+    if meta["used_understat_fallback"]:
+        return (
+            "fixtures.csv had no Bundesliga (D1) fixture in the next {0} days "
+            "({1} D1 row(s) present at all) -- fell back to the Understat "
+            "schedule for {2} fixture(s). These tips have NO market odds "
+            "input (blend is xG + Dixon-Coles only); re-check after the "
+            "Friday run once football-data republishes the D1 block.".format(
+                n, meta["d1_rows_in_csv"], n_contexts
+            )
+        )
+    if n_contexts == 0:
+        if meta["d1_rows_in_csv"] == 0:
+            return (
+                "fixtures.csv contains NO Bundesliga (D1) rows at all, and "
+                "the Understat schedule had no fixture in the next {0} days "
+                "either. Likely an upstream fixtures.csv data-source issue "
+                "rather than a genuine matchday break -- verify manually.".format(n)
+            )
+        return (
+            "No Bundesliga fixtures in the next {0} days -- matchday break. "
+            "({1} D1 row(s) in fixtures.csv, none inside the window.)".format(
+                n, meta["d1_rows_in_csv"]
+            )
+        )
+    return ""
+
+
 def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned, warnings):
     # Compare like with like: fixtures.csv kickoff times are German local
     # (CET/CEST), so "now" must be German local too -- a UTC "now" would
@@ -346,62 +482,61 @@ def predict_fixtures(fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned
     window_end = now + timedelta(days=FIXTURE_WINDOW_DAYS)
 
     fixtures_df = fixtures_df.copy()
-    fixtures_df["kickoff_ts"] = kickoff_timestamps(fixtures_df)
-
-    upcoming = fixtures_df[
-        (fixtures_df["kickoff_ts"] >= now) & (fixtures_df["kickoff_ts"] <= window_end)
-    ].copy()
+    # A fixtures.csv with no D1 rows still keeps its columns; but be
+    # defensive -- a truly columnless empty frame must not crash
+    # kickoff_timestamps(), it just means "no CSV fixtures, try Understat".
+    has_csv_rows = len(fixtures_df) > 0 and "Date" in fixtures_df.columns
+    if has_csv_rows:
+        fixtures_df["kickoff_ts"] = kickoff_timestamps(fixtures_df)
+        upcoming = fixtures_df[
+            (fixtures_df["kickoff_ts"] >= now) & (fixtures_df["kickoff_ts"] <= window_end)
+        ].copy()
+    else:
+        upcoming = pd.DataFrame(columns=["HomeTeam", "AwayTeam", "kickoff_ts"])
 
     # The set of football-data-side names we can resolve a fixture
     # against: every name seen in fixtures.csv itself, plus every
     # historical Understat team name mapped through the crosswalk (or
     # taken as-is for teams never needing a rename).
-    known_fd_names = set(fixtures_df["HomeTeam"]).union(fixtures_df["AwayTeam"])
+    known_fd_names = set()
+    if "HomeTeam" in fixtures_df.columns:
+        known_fd_names = set(fixtures_df["HomeTeam"]).union(fixtures_df["AwayTeam"])
     known_fd_names |= set(
         crosswalk.UNDERSTAT_TO_FD.get(n, n) for n in matches["home_team"].unique()
     )
 
+    # Fixture-source bookkeeping so main() can tell "genuine matchday
+    # break" from "upstream fixtures.csv is missing the Bundesliga block".
+    # `d1_rows_in_csv` counts D1 rows in fixtures.csv at all (it is
+    # already D1-filtered upstream in download_fixtures_csv).
+    meta = {
+        "d1_rows_in_csv": int(len(fixtures_df)),
+        "csv_upcoming": int(len(upcoming)),
+        "source": "fixtures.csv",
+        "used_understat_fallback": False,
+    }
+
+    if len(upcoming) == 0:
+        fallback = understat_fixture_fallback(now, window_end, known_fd_names, warnings)
+        if len(fallback) > 0:
+            _log(
+                "fixtures.csv had no D1 fixture in the {0}-day window "
+                "({1} D1 row(s) total); using Understat schedule fallback "
+                "({2} fixture(s)).".format(
+                    FIXTURE_WINDOW_DAYS, meta["d1_rows_in_csv"], len(fallback)
+                )
+            )
+            upcoming = fallback
+            meta["source"] = "understat"
+            meta["used_understat_fallback"] = True
+
     match_contexts = []
     for _, fx in upcoming.iterrows():
-        home_fd, away_fd = fx["HomeTeam"], fx["AwayTeam"]
-
-        lam_market = market.compute_market_lambdas(fx)
-
-        lam_xg = team_rolling_lambda_for_fixture(home_fd, away_fd, xg_enriched, known_fd_names)
-
-        home_understat = _fd_to_understat(home_fd)
-        away_understat = _fd_to_understat(away_fd)
-        lam_dc = dc.dc_lambdas(dc_fit, home_understat, away_understat)
-
-        weights = tuple(tuned["weights"])
-        lam_h, lam_a = blend.blend_log_lambda(lam_market, lam_xg, lam_dc, weights)
-
-        dispersion = (0.05, 0.05) if tuned.get("use_negbin") else None
-        grid = blend.build_final_grid(
-            lam_h, lam_a, dc_fit["rho"], use_negbin=tuned.get("use_negbin", False),
-            dispersion=dispersion,
+        match_contexts.append(
+            _predict_one_fixture(fx, known_fd_names, xg_enriched, dc_fit, tuned)
         )
-        rec = optimizer.recommend_tip(grid, draw_margin=tuned.get("draw_margin", config.DRAW_MARGIN))
 
-        mkt_probs = None
-        odds_1x2 = market.pick_1x2_odds(fx)
-        if odds_1x2 is not None:
-            mkt_probs = tuple(market.shin_probabilities(odds_1x2))
-
-        kickoff_cet = _to_cet_string(fx["kickoff_ts"], fx.get("Time"))
-        fixture_row = {"home_team": home_fd, "away_team": away_fd, "kickoff_cet": kickoff_cet}
-
-        ctx = report.build_match_context(fixture_row, rec, lam_market, lam_xg, lam_dc, mkt_probs)
-        # DST-corrected kickoff timestamp (pd.Timestamp, Europe/Berlin,
-        # tz-naive) -- kicktipp_submit uses it for the "too close to
-        # kickoff" guard; not shown in the report.
-        ctx["kickoff_ts"] = fx["kickoff_ts"]
-        ctx["heatmap_div"] = report.heatmap_html(
-            grid, div_id="grid-{0}-{1}".format(home_fd, away_fd).replace(" ", "_")
-        )
-        match_contexts.append(ctx)
-
-    return match_contexts
+    return match_contexts, meta
 
 
 def _fd_to_understat(fd_name):
@@ -449,12 +584,13 @@ def main():
     xg_lookup, dc_fit, tuned, xg_enriched = rebuild_state(matches, shots)
 
     _log("Step 4: predicting fixtures in the next {0} days...".format(FIXTURE_WINDOW_DAYS))
-    match_contexts = predict_fixtures(
+    match_contexts, fixture_meta = predict_fixtures(
         fixtures_df, matches, xg_lookup, xg_enriched, dc_fit, tuned, warnings
     )
 
-    if not match_contexts:
-        warnings.append("No fixtures found in the next {0} days.".format(FIXTURE_WINDOW_DAYS))
+    fixture_warning = fixture_source_warning(fixture_meta, len(match_contexts))
+    if fixture_warning:
+        warnings.append(fixture_warning)
 
     season_points_path = config.SEASON_POINTS_PATH
     if os.path.exists(season_points_path):
