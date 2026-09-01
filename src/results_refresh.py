@@ -130,7 +130,13 @@ def refresh_and_score():
         _log("No matches had sufficient history to score.")
         return already_scored
 
-    updated = pd.concat([already_scored, pd.DataFrame(new_rows)], ignore_index=True)
+    new_df = pd.DataFrame(new_rows)
+    # Avoid pandas' all-empty-frame concat FutureWarning on the first-ever
+    # write, when load_season_points() returned a columns-only frame.
+    if already_scored.empty:
+        updated = new_df
+    else:
+        updated = pd.concat([already_scored, new_df], ignore_index=True)
     os.makedirs(config.STATE_DIR, exist_ok=True)
     updated.to_csv(config.SEASON_POINTS_PATH, index=False)
     _log("Scored {0} newly-completed match(es); season_points.csv now has {1} rows.".format(

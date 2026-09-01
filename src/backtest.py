@@ -463,7 +463,14 @@ def _join_odds_to_matches(matches_df, odds_df):
     odds_df = odds_df.copy()
     odds_df["Date"] = pd.to_datetime(odds_df["Date"])
 
-    known_fd_names = set(odds_df["HomeTeam"]).union(odds_df["AwayTeam"])
+    # Seed the resolvable-name set with the crosswalk's own roster, then
+    # add whatever the odds file happens to carry. Without the seed, a
+    # missing or late D1.csv (so odds_df has no current-season rows) makes
+    # to_fd_name() hard-fail on a routine identity name -- e.g. a promoted
+    # club not yet in older odds -- turning a recoverable "no odds to
+    # join" into a crash (observed 2026-08-31 on "Elversberg").
+    known_fd_names = crosswalk._all_known_fd_names()
+    known_fd_names |= set(odds_df["HomeTeam"]).union(odds_df["AwayTeam"])
     matches_df = matches_df.copy()
     matches_df["home_fd"] = matches_df["home_team"].map(
         lambda n: crosswalk.to_fd_name(n, known_fd_names=known_fd_names)
