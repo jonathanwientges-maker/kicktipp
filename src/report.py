@@ -7,6 +7,7 @@ import subprocess
 
 import jinja2
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
 
@@ -46,19 +47,72 @@ def heatmap_html(grid, max_show=5, div_id=None):
     return pio.to_html(fig, include_plotlyjs="cdn", full_html=False, div_id=div_id)
 
 
+BUNDESLIGA_MATCHES_PER_MATCHDAY = 9
+
+_TRACKER_COLS = [
+    ("model_points", "Model", ACCENT),
+    ("always21_points", "Always 2-1", "#9aa5b1"),
+    ("market_ev_points", "Market EV", "#e07b39"),
+]
+
+
+def matchday_points(season_points_df):
+    """
+    Collapse the per-MATCH season_points rows into per-MATCHDAY point
+    totals. season_points.csv holds one row per scored match; a Bundesliga
+    matchday is 9 of them. Rows are ordered by kickoff (falling back to
+    file order) and grouped 9-at-a-time, so an in-progress final matchday
+    just yields a smaller last group.
+
+    Returns a DataFrame indexed 1..N (matchday number) with one summed
+    column per metric present in the input, plus 'exact_hit' / 'gd_hit'
+    counts when available. Empty in -> empty out.
+    """
+    if season_points_df is None or len(season_points_df) == 0:
+        return pd.DataFrame()
+
+    df = season_points_df.copy()
+    if "datetime" in df.columns:
+        df = df.sort_values("datetime", kind="stable")
+    df = df.reset_index(drop=True)
+    df["_matchday"] = df.index // BUNDESLIGA_MATCHES_PER_MATCHDAY + 1
+
+    sum_cols = [c for c, _, _ in _TRACKER_COLS if c in df.columns]
+    for c in ("exact_hit", "gd_hit"):
+        if c in df.columns:
+            sum_cols.append(c)
+
+    grouped = df.groupby("_matchday")[sum_cols].apply(
+        lambda g: g.fillna(0).sum()
+    )
+    grouped.index.name = "matchday"
+    return grouped
+
+
+def season_summary_stats(season_points_df):
+    """Headline numbers for the report's Season tracker table, computed
+    on a per-MATCHDAY basis (not per match)."""
+    md = matchday_points(season_points_df)
+    n_md = len(md)
+    total_model = float(md["model_points"].sum()) if "model_points" in md.columns else 0.0
+    return {
+        "matchdays": n_md,
+        "points_per_matchday": (total_model / n_md) if n_md else 0.0,
+        "exact_hits": int(md["exact_hit"].sum()) if "exact_hit" in md.columns else 0,
+        "gd_hits": int(md["gd_hit"].sum()) if "gd_hit" in md.columns else 0,
+    }
+
+
 def season_tracker_html(season_points_df, div_id=None):
-    """Cumulative points line chart, model vs baselines."""
+    """Cumulative points line chart, model vs baselines -- one point per
+    matchday (x-axis), not per match."""
+    md = matchday_points(season_points_df)
     fig = go.Figure()
-    cols = [
-        ("model_points", "Model", ACCENT),
-        ("always21_points", "Always 2-1", "#9aa5b1"),
-        ("market_ev_points", "Market EV", "#e07b39"),
-    ]
-    for col, label, color in cols:
-        if col in season_points_df.columns:
-            cum = season_points_df[col].fillna(0).cumsum()
+    for col, label, color in _TRACKER_COLS:
+        if col in md.columns:
+            cum = md[col].cumsum()
             fig.add_trace(go.Scatter(
-                x=list(range(1, len(cum) + 1)), y=cum, mode="lines+markers",
+                x=list(md.index), y=cum, mode="lines+markers",
                 name=label, line=dict(color=color, width=2),
             ))
     fig.update_layout(
@@ -67,6 +121,8 @@ def season_tracker_html(season_points_df, div_id=None):
         legend=dict(orientation="h", y=-0.2),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
     )
+    if len(md):
+        fig.update_xaxes(dtick=1)
     return pio.to_html(fig, include_plotlyjs="cdn", full_html=False, div_id=div_id)
 
 
