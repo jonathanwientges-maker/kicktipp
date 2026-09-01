@@ -161,17 +161,20 @@ KICKTIPP_BASE = "https://www.kicktipp.de"
 KICKTIPP_COMMUNITY = "buli-challenge"   # community short-name in the URL path
 KICKTIPP_LIVE = os.environ.get("KICKTIPP_LIVE", "").strip() == "1"
 
-# Never place (or overwrite) a tip within this many hours of kickoff --
-# a late model run should not fight a manual entry made near the deadline.
-# Uses the DST-corrected kickoff timestamp from predict.kickoff_timestamps.
-KICKTIPP_MIN_LEAD_HOURS = 2
+# Do not place a tip within this many hours of kickoff. 0 disables the
+# lockout entirely (every run tips every still-open match, right up to
+# Kicktipp's own deadline). Uses the DST-corrected kickoff timestamp from
+# predict.kickoff_timestamps.
+KICKTIPP_MIN_LEAD_HOURS = 0
 
-# Fill-blanks-only: a match whose Kicktipp form already holds a value
-# (any manual or prior entry) is left untouched. Set False to let the
-# model overwrite its own earlier auto-entries (still never within
-# KICKTIPP_MIN_LEAD_HOURS, still not implemented as a hard overwrite of
-# manual edits -- see kicktipp_submit.py).
-KICKTIPP_FILL_BLANKS_ONLY = True
+# Fill-blanks-only: when True, a match whose Kicktipp form already holds a
+# value is left untouched. When False (the default), every run overwrites
+# every still-open match with the current model tip -- prior auto-entries
+# AND manual edits alike (the form only exposes "this field has a value",
+# so the two cannot be told apart). This is intentional: each run is a
+# full recompute and its tips supersede the last run's. Enter a manual
+# tip only after the final run before kickoff, or it will be replaced.
+KICKTIPP_FILL_BLANKS_ONLY = False
 
 # Kicktipp shows German short team names in the bet form; the model
 # works in football-data.co.uk names. This maps the Kicktipp display

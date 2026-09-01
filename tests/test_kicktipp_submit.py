@@ -180,9 +180,42 @@ def _rows_from(html):
     return rows
 
 
-def test_fill_blanks_only_skips_rows_that_already_have_a_value():
+def test_default_overwrites_rows_that_already_have_a_value():
+    """Default (KICKTIPP_FILL_BLANKS_ONLY=False): an existing value is
+    replaced with the current model tip, and reported as an overwrite
+    (prev -> new), not a fresh fill."""
     html = _form_html([
-        ("1", "Bayern", "Stuttgart", "", ""),      # blank -> place
+        ("1", "Bayern", "Stuttgart", "", ""),      # blank  -> fresh fill
+        ("2", "Dortmund", "Hamburg", "2", "1"),    # filled -> overwrite
+    ])
+    rows = _rows_from(html)
+    model = {
+        ("Bayern Munich", "Stuttgart"): (3, 1, pd.Timestamp("2099-01-01 15:30")),
+        ("Dortmund", "Hamburg"): (2, 0, pd.Timestamp("2099-01-01 15:30")),
+    }
+    d = ks._decide(rows, model, pd.Timestamp("2098-12-31 12:00"))
+
+    by_id = {p["row"]["game_id"]: p for p in d["to_place"]}
+    assert set(by_id) == {"1", "2"}
+    assert by_id["1"]["overwrite"] is False
+    assert by_id["2"]["overwrite"] is True and by_id["2"]["prev"] == "2:1"
+    assert not d["skipped_existing"]
+
+
+def test_row_already_holding_the_model_tip_is_a_noop():
+    html = _form_html([("1", "Dortmund", "Hamburg", "2", "0")])
+    rows = _rows_from(html)
+    model = {("Dortmund", "Hamburg"): (2, 0, pd.Timestamp("2099-01-01 15:30"))}
+    d = ks._decide(rows, model, pd.Timestamp("2098-12-31 12:00"))
+
+    assert not d["to_place"]
+    assert d["skipped_unchanged"] and "Dortmund" in d["skipped_unchanged"][0]
+
+
+def test_fill_blanks_only_when_enabled_skips_rows_with_a_value(monkeypatch):
+    monkeypatch.setattr(config, "KICKTIPP_FILL_BLANKS_ONLY", True)
+    html = _form_html([
+        ("1", "Bayern", "Stuttgart", "", ""),      # blank  -> place
         ("2", "Dortmund", "Hamburg", "2", "1"),    # filled -> skip
     ])
     rows = _rows_from(html)
@@ -190,25 +223,43 @@ def test_fill_blanks_only_skips_rows_that_already_have_a_value():
         ("Bayern Munich", "Stuttgart"): (3, 1, pd.Timestamp("2099-01-01 15:30")),
         ("Dortmund", "Hamburg"): (2, 0, pd.Timestamp("2099-01-01 15:30")),
     }
-    now = pd.Timestamp("2098-12-31 12:00")
-    d = ks._decide(rows, model, now)
+    d = ks._decide(rows, model, pd.Timestamp("2098-12-31 12:00"))
 
     assert [p["row"]["game_id"] for p in d["to_place"]] == ["1"]
     assert d["skipped_existing"] and "Dortmund" in d["skipped_existing"][0]
 
 
-def test_kickoff_guard_skips_matches_within_min_lead_hours():
+def test_default_lead_hours_zero_places_right_up_to_kickoff():
+    """MIN_LEAD_HOURS defaults to 0: a match still 1 minute from kickoff
+    is tipped; one that has kicked off is not."""
+    html = _form_html([
+        ("1", "Bayern", "Stuttgart", "", ""),
+        ("2", "Dortmund", "Hamburg", "", ""),
+    ])
+    rows = _rows_from(html)
+    now = pd.Timestamp("2026-08-28 20:29")
+    model = {
+        ("Bayern Munich", "Stuttgart"): (3, 1, pd.Timestamp("2026-08-28 20:30")),  # 1 min out
+        ("Dortmund", "Hamburg"): (2, 0, pd.Timestamp("2026-08-28 18:30")),          # already started
+    }
+    d = ks._decide(rows, model, now)
+    assert [p["row"]["game_id"] for p in d["to_place"]] == ["1"]
+    assert d["skipped_kickoff"] and "Dortmund" in d["skipped_kickoff"][0]
+
+
+def test_lead_hours_window_when_configured_skips_matches_inside_it(monkeypatch):
+    monkeypatch.setattr(config, "KICKTIPP_MIN_LEAD_HOURS", 2)
     html = _form_html([("1", "Bayern", "Stuttgart", "", "")])
     rows = _rows_from(html)
-    now = pd.Timestamp("2026-08-28 19:00")
+    now = pd.Timestamp("2026-08-28 19:00")  # 1.5h to kickoff, window is 2h
     model = {("Bayern Munich", "Stuttgart"): (3, 1, pd.Timestamp("2026-08-28 20:30"))}
-    # 1.5h to kickoff, min lead is 2h -> skip
     d = ks._decide(rows, model, now)
     assert not d["to_place"]
     assert d["skipped_kickoff"]
 
 
-def test_kickoff_guard_allows_matches_outside_min_lead_hours():
+def test_kickoff_guard_allows_matches_outside_min_lead_hours(monkeypatch):
+    monkeypatch.setattr(config, "KICKTIPP_MIN_LEAD_HOURS", 2)
     html = _form_html([("1", "Bayern", "Stuttgart", "", "")])
     rows = _rows_from(html)
     now = pd.Timestamp("2026-08-28 16:00")
@@ -228,20 +279,27 @@ def test_row_without_a_model_tip_is_reported_unmatched():
 # --------------------------------------------------------------------------
 # POST body
 # --------------------------------------------------------------------------
-def test_post_body_fills_blanks_and_preserves_everything_else():
+def test_post_body_writes_to_place_rows_and_echoes_the_rest():
     html = _form_html([
-        ("1", "Bayern", "Stuttgart", "", ""),
-        ("2", "Dortmund", "Hamburg", "2", "1"),
+        ("1", "Bayern", "Stuttgart", "", ""),      # fresh fill
+        ("2", "Dortmund", "Hamburg", "2", "1"),    # overwrite: to_place
+        ("3", "Freiburg", "Mainz", "1", "1"),      # NOT in to_place -> echoed
     ])
     meta, rows = ks.parse_bet_form(html)
-    to_place = [{"row": rows[0], "tip_h": 3, "tip_a": 1}]
+    to_place = [
+        {"row": rows[0], "tip_h": 3, "tip_a": 1},
+        {"row": rows[1], "tip_h": 2, "tip_a": 0},
+    ]
     body = ks._build_post_body(meta, rows, to_place)
 
     assert body["spieltippForms[1].heimTipp"] == "3"
     assert body["spieltippForms[1].gastTipp"] == "1"
-    # untouched row keeps its existing values
+    # existing value overwritten with the model tip
     assert body["spieltippForms[2].heimTipp"] == "2"
-    assert body["spieltippForms[2].gastTipp"] == "1"
+    assert body["spieltippForms[2].gastTipp"] == "0"
+    # row not in to_place keeps its existing values
+    assert body["spieltippForms[3].heimTipp"] == "1"
+    assert body["spieltippForms[3].gastTipp"] == "1"
     # hidden fields echoed
     assert body["_csrf"] == "tok123"
 
@@ -338,3 +396,47 @@ def test_no_fixtures_returns_clean_summary(monkeypatch, _live_creds):
     summary = ks.submit_tips([], matchday_index=None, live=True)
     assert summary["placed"] == []
     assert summary.get("note") == "no fixtures to submit"
+
+
+def test_live_run_overwrites_prior_entry_and_reports_it(monkeypatch, _live_creds):
+    """The whole point of this change: a second run replaces the value a
+    first run left, and the summary shows it as prev -> new."""
+    fake = _FakeSession(_form_html([("1", "Bayern", "Stuttgart", "1", "1")]))
+    _patch_session(monkeypatch, fake)
+
+    ctx = [_ctx("Bayern Munich", "Stuttgart", 3, 1, "2099-01-01 15:30")]
+    summary = ks.submit_tips(ctx, matchday_index=None, dry_run=False, live=True)
+
+    assert summary["submitted"] is True
+    assert summary["placed"] == []
+    assert summary["overwritten"] == ["Bayern Munich vs Stuttgart: 1:1 -> 3:1"]
+    _, body = [p for p in fake.posts if "tippabgabe" in p[0]][0]
+    assert body["spieltippForms[1].heimTipp"] == "3"
+    assert body["spieltippForms[1].gastTipp"] == "1"
+
+
+def test_live_run_is_noop_when_form_already_holds_the_model_tip(monkeypatch, _live_creds):
+    fake = _FakeSession(_form_html([("1", "Bayern", "Stuttgart", "3", "1")]))
+    _patch_session(monkeypatch, fake)
+
+    ctx = [_ctx("Bayern Munich", "Stuttgart", 3, 1, "2099-01-01 15:30")]
+    summary = ks.submit_tips(ctx, matchday_index=None, dry_run=False, live=True)
+
+    assert summary["submitted"] is False
+    assert summary["placed"] == [] and summary["overwritten"] == []
+    assert summary["skipped_unchanged"]
+    assert [p for p in fake.posts if "tippabgabe" in p[0]] == []
+
+
+def test_summary_lines_distinguishes_fills_from_overwrites():
+    summary = {
+        "live": True, "submitted": True, "http_status": 200,
+        "placed": ["A vs B -> 2:1"],
+        "overwritten": ["C vs D: 1:1 -> 0:2"],
+        "skipped_existing": [], "skipped_unchanged": ["E vs F (already 1:0)"],
+        "skipped_kickoff": [], "unmatched": [],
+    }
+    text = "\n".join(ks.summary_lines(summary))
+    assert "Placed: A vs B -> 2:1" in text
+    assert "Overwrote: C vs D: 1:1 -> 0:2" in text
+    assert "already the model tip" in text

@@ -3,9 +3,14 @@ Kicktipp auto-submission (optional weekly step).
 
 Logs into kicktipp.de with a plain requests.Session (no browser) and
 enters the model's tips into the community bet form. Deliberately narrow:
-it places the exact-score tip the model already computed, for upcoming
-matches only, and -- by default -- only where the form field is still
-blank.
+it places the exact-score tip the model already computed, for still-open
+matches of the current matchday.
+
+Each weekly run is a full recompute, and by default its tips SUPERSEDE
+the previous run's: an existing value in the form -- a prior auto-entry
+or a manual edit, indistinguishable to us -- is overwritten. Set
+config.KICKTIPP_FILL_BLANKS_ONLY = True to go back to touching only blank
+rows.
 
 Safety model
 ------------
@@ -13,9 +18,12 @@ Safety model
   flow runs (login, parse, decide) and returns a summary of what it WOULD
   submit, but sends no POST. `dry_run=True` (predict.py --no-email) forces
   the same.
-* Never touches a match within config.KICKTIPP_MIN_LEAD_HOURS of kickoff.
-* Fill-blanks-only (config.KICKTIPP_FILL_BLANKS_ONLY): a row that already
-  holds any value is left as-is -- a manual entry always wins.
+* A match that has already kicked off is never touched. With
+  config.KICKTIPP_MIN_LEAD_HOURS > 0, nothing inside that pre-kickoff
+  window is touched either; 0 (the default) disables that window.
+* A row already holding exactly the model tip is left alone (no-op).
+* config.KICKTIPP_FILL_BLANKS_ONLY (default False): when True, any row
+  that already holds a value is left as-is.
 * Team names are matched Kicktipp-display -> football-data via
   config.KICKTIPP_TEAM_ALIASES. An unmapped name is a HARD FAILURE
   (KicktippSubmitError), never a silent skip -- a score entered against
@@ -328,11 +336,20 @@ def _decide(rows, model_tips, now):
     """
     Split rows into actions. Returns dict of lists (see submit_tips summary).
     `now` is a tz-naive pandas Timestamp in Europe/Berlin local time.
+
+    With config.KICKTIPP_FILL_BLANKS_ONLY == False (the default) every
+    still-open match with a model tip is (re)written -- an existing value,
+    whether a prior auto-entry or a manual edit, is overwritten. The one
+    thing skipped is a row whose value already equals the model tip
+    (nothing to change) and, when KICKTIPP_MIN_LEAD_HOURS > 0, a match
+    inside that pre-kickoff window. A match that has already kicked off is
+    always skipped regardless of the lead setting.
     """
     import pandas as pd  # local: keep module importable without pandas at parse time
 
     min_lead = pd.Timedelta(hours=config.KICKTIPP_MIN_LEAD_HOURS)
-    to_place, skipped_existing, skipped_kickoff, unmatched = [], [], [], []
+    to_place, skipped_existing = [], []
+    skipped_unchanged, skipped_kickoff, unmatched = [], [], []
 
     for row in rows:
         key = (row["home_fd"], row["away_fd"])
@@ -340,30 +357,44 @@ def _decide(rows, model_tips, now):
             unmatched.append("{0} vs {1} (no model tip)".format(*key))
             continue
         tip_h, tip_a, kickoff_ts = model_tips[key]
+        cur_h, cur_a = row["heim_value"], row["gast_value"]
+        had_value = bool(cur_h or cur_a)
 
-        if config.KICKTIPP_FILL_BLANKS_ONLY and (row["heim_value"] or row["gast_value"]):
+        if config.KICKTIPP_FILL_BLANKS_ONLY and had_value:
             skipped_existing.append(
                 "{0} vs {1} (already {2}:{3})".format(
-                    key[0], key[1], row["heim_value"] or "-", row["gast_value"] or "-"
+                    key[0], key[1], cur_h or "-", cur_a or "-"
                 )
+            )
+            continue
+
+        # No-op: the form already holds exactly this tip.
+        if cur_h == str(tip_h) and cur_a == str(tip_a):
+            skipped_unchanged.append(
+                "{0} vs {1} (already {2}:{3})".format(key[0], key[1], tip_h, tip_a)
             )
             continue
 
         if kickoff_ts is not None:
             kt = pd.Timestamp(kickoff_ts)
-            if kt - now < min_lead:
+            # Always skip a match that has genuinely started; additionally
+            # skip anything inside the lead window when one is configured.
+            if kt <= now or (min_lead > pd.Timedelta(0) and kt - now < min_lead):
                 skipped_kickoff.append(
-                    "{0} vs {1} (kickoff {2}, within {3}h)".format(
-                        key[0], key[1], kt, config.KICKTIPP_MIN_LEAD_HOURS
-                    )
+                    "{0} vs {1} (kickoff {2})".format(key[0], key[1], kt)
                 )
                 continue
 
-        to_place.append({"row": row, "tip_h": tip_h, "tip_a": tip_a})
+        to_place.append({
+            "row": row, "tip_h": tip_h, "tip_a": tip_a,
+            "overwrite": had_value,
+            "prev": "{0}:{1}".format(cur_h or "-", cur_a or "-") if had_value else None,
+        })
 
     return {
         "to_place": to_place,
         "skipped_existing": skipped_existing,
+        "skipped_unchanged": skipped_unchanged,
         "skipped_kickoff": skipped_kickoff,
         "unmatched": unmatched,
     }
@@ -371,8 +402,9 @@ def _decide(rows, model_tips, now):
 
 def _build_post_body(form_meta, rows, to_place):
     """
-    Full form body: every field Kicktipp expects back. Existing values are
-    preserved; only the blank fields for `to_place` rows get filled.
+    Full form body: every field Kicktipp expects back. `to_place` rows get
+    the model tip (overwriting whatever was there); every other row is
+    echoed back with its current value untouched.
     """
     body = dict(form_meta["hidden"])
     place_ids = {p["row"]["game_id"]: p for p in to_place}
@@ -426,8 +458,10 @@ def submit_tips(match_contexts, matchday_index, dry_run=False, live=None):
     Returns a summary dict:
       {
         "live": bool, "submitted": bool, "http_status": int|None,
-        "placed": [str, ...],            # "Home vs Away -> h:a"
-        "skipped_existing": [str, ...],
+        "placed": [str, ...],            # "Home vs Away -> h:a" (fresh fills)
+        "overwritten": [str, ...],       # "Home vs Away: 1:1 -> 2:1"
+        "skipped_existing": [str, ...],  # only when FILL_BLANKS_ONLY
+        "skipped_unchanged": [str, ...], # form already held this exact tip
         "skipped_kickoff": [str, ...],
         "unmatched": [str, ...],
       }
@@ -454,7 +488,8 @@ def submit_tips(match_contexts, matchday_index, dry_run=False, live=None):
     if not match_contexts:
         return {
             "live": effective_live, "submitted": False, "http_status": None,
-            "placed": [], "skipped_existing": [], "skipped_kickoff": [],
+            "placed": [], "overwritten": [], "skipped_existing": [],
+            "skipped_unchanged": [], "skipped_kickoff": [],
             "unmatched": [], "note": "no fixtures to submit",
         }
 
@@ -472,7 +507,13 @@ def submit_tips(match_contexts, matchday_index, dry_run=False, live=None):
         "{0} vs {1} -> {2}:{3}".format(
             p["row"]["home_fd"], p["row"]["away_fd"], p["tip_h"], p["tip_a"]
         )
-        for p in decision["to_place"]
+        for p in decision["to_place"] if not p["overwrite"]
+    ]
+    overwritten_labels = [
+        "{0} vs {1}: {2} -> {3}:{4}".format(
+            p["row"]["home_fd"], p["row"]["away_fd"], p["prev"], p["tip_h"], p["tip_a"]
+        )
+        for p in decision["to_place"] if p["overwrite"]
     ]
 
     http_status = None
@@ -487,7 +528,9 @@ def submit_tips(match_contexts, matchday_index, dry_run=False, live=None):
         "submitted": submitted,
         "http_status": http_status,
         "placed": placed_labels,
+        "overwritten": overwritten_labels,
         "skipped_existing": decision["skipped_existing"],
+        "skipped_unchanged": decision["skipped_unchanged"],
         "skipped_kickoff": decision["skipped_kickoff"],
         "unmatched": decision["unmatched"],
     }
@@ -502,17 +545,25 @@ def summary_lines(summary):
         else ("LIVE, nothing to place" if summary["live"] else "DRY-RUN (KICKTIPP_LIVE not set)")
     )
     lines = ["Kicktipp auto-submit [{0}]:".format(mode)]
+    submitted = summary["submitted"]
     if summary["placed"]:
-        verb = "Placed" if summary["submitted"] else "Would place"
-        lines.append("  {0}: {1}".format(verb, "; ".join(summary["placed"])))
-    else:
+        lines.append("  {0}: {1}".format(
+            "Placed" if submitted else "Would place", "; ".join(summary["placed"])
+        ))
+    if summary.get("overwritten"):
+        lines.append("  {0}: {1}".format(
+            "Overwrote" if submitted else "Would overwrite",
+            "; ".join(summary["overwritten"]),
+        ))
+    if not summary["placed"] and not summary.get("overwritten"):
         lines.append("  Nothing to place.")
     for label, key in (
-        ("Skipped (already filled)", "skipped_existing"),
-        ("Skipped (too close to kickoff)", "skipped_kickoff"),
+        ("Skipped (already the model tip)", "skipped_unchanged"),
+        ("Skipped (fill-blanks-only, value present)", "skipped_existing"),
+        ("Skipped (kicked off / too close)", "skipped_kickoff"),
         ("Unmatched (no model tip)", "unmatched"),
     ):
-        if summary[key]:
+        if summary.get(key):
             lines.append("  {0}: {1}".format(label, "; ".join(summary[key])))
     if summary["http_status"] is not None:
         lines.append("  HTTP {0}".format(summary["http_status"]))
