@@ -59,6 +59,12 @@
   --dur-fast: 150ms;
   --dur-mid: 350ms;
   --dur-slow: 800ms;
+  /* Critically damped spring (damping 1.0, response ~0.35s) as an easing
+     curve: for settles after a gesture, where overshoot would read as noise. */
+  --spring: linear(0, 0.102, 0.293, 0.48, 0.634, 0.75, 0.833, 0.89, 0.929, 0.954, 0.971, 0.981, 0.988, 0.993, 1);
+  --dur-spring: 420ms;
+  --h-topbar: 56px;
+  --h-sticky-h: 2.5rem;
 
   /* Type scale */
   --fs-display-xl: 4.5rem;
@@ -220,9 +226,16 @@ td.num {
   transition: transform var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-fast) var(--ease-out);
 }
-.surface-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-pop), var(--highlight-top);
+@media (hover: hover) {
+  .surface-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-pop), var(--highlight-top);
+  }
+}
+/* press feedback on touch-down, instant */
+.surface-hover:active {
+  transform: scale(0.985);
+  transition-duration: 80ms;
 }
 
 /* Optional hero wash lives in the layout. */
@@ -270,14 +283,13 @@ td.num {
 .table-scroll tbody tr:last-child {
   border-bottom: 0;
 }
-.table-scroll tbody tr:hover {
-  background: var(--surface-raised);
+@media (hover: hover) {
+  .table-scroll tbody tr:hover {
+    background: var(--surface-raised);
+  }
 }
 
 .table-scroll thead th {
-  position: sticky;
-  top: 0;
-  z-index: 3;
   min-height: 40px;
   height: 40px;
   font-size: var(--fs-label);
@@ -285,8 +297,7 @@ td.num {
   letter-spacing: 0.08em;
   font-weight: 600;
   color: var(--text-dim);
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
-  backdrop-filter: blur(8px);
+  background: var(--surface);
   border-bottom: 1px solid var(--border-strong);
 }
 .table-scroll th:first-child,
@@ -419,6 +430,7 @@ tr[data-zone="drop"] td:first-child {
 
 /* segmented control (BRIEF §2.2) */
 .dt-seg {
+  position: relative;
   display: flex;
   width: 100%;
   min-height: 36px;
@@ -429,7 +441,23 @@ tr[data-zone="drop"] td:first-child {
   border-radius: var(--r-md);
   margin-bottom: 0.85rem;
 }
+.dt-seg::before,
+.lineup-seg::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px - (var(--n, 2) - 1) * 3px) / var(--n, 2));
+  border-radius: calc(var(--r-md) - 3px);
+  background: var(--surface-raised);
+  box-shadow: var(--highlight-top);
+  transform: translateX(calc(var(--i, 0) * (100% + 3px)));
+  transition: transform var(--dur-spring) var(--spring);
+  pointer-events: none;
+}
 .dt-seg-btn {
+  z-index: 1;
   flex: 1 1 0;
   min-height: 30px;
   display: flex;
@@ -454,9 +482,11 @@ tr[data-zone="drop"] td:first-child {
   inset: -8px 0;
 }
 .dt-seg-btn[data-active="true"] {
-  background: var(--surface-raised);
   color: var(--text);
-  box-shadow: var(--highlight-top);
+}
+.dt-seg-btn:active,
+.lineup-seg-btn:active {
+  transform: scale(0.97);
 }
 @media (min-width: 768px) {
   .dt-seg {
@@ -527,6 +557,10 @@ tr[data-zone="drop"] td:first-child {
 .dt-chev-icon[data-open="true"] {
   transform: rotate(-90deg);
 }
+.dt-tappable {
+  cursor: pointer;
+}
+.dt-tappable:active,
 .dt-tappable[data-open="true"] {
   background: var(--surface-raised);
 }
@@ -536,6 +570,18 @@ tr[data-zone="drop"] td:first-child {
   padding: 0 !important;
   height: auto !important;
   background: var(--surface-raised);
+}
+.dt-card-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-mid) var(--ease-out);
+}
+.dt-card-wrap[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.dt-card-clip {
+  min-height: 0;
+  overflow: hidden;
 }
 .dt-card {
   margin: 0;
@@ -581,11 +627,19 @@ tr[data-zone="drop"] td:first-child {
   font-size: var(--fs-small);
   font-family: var(--font-display), sans-serif;
   font-weight: 600;
-  transition: all var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform 80ms var(--ease-out);
 }
-.toggle-btn:hover {
-  border-color: var(--border-strong);
-  color: var(--text);
+@media (hover: hover) {
+  .toggle-btn:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+}
+.toggle-btn:active {
+  transform: scale(0.97);
 }
 .toggle-btn[data-active="true"] {
   background: var(--accent);
@@ -604,6 +658,22 @@ tr[data-zone="drop"] td:first-child {
   width: 32px;
   height: 44px;
   transform: translate(-50%, -50%);
+}
+
+/* Explainer popover: scales out of its trigger */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.explainer-pop {
+  transform-origin: var(--ox, 0) top;
+  animation: pop-in 120ms var(--ease-out);
 }
 
 /* ---------------------------------------------------------------------------
@@ -650,13 +720,9 @@ svg text {
     transform var(--dur-mid) var(--ease-out);
 }
 
-/* Native MPA cross-fade on navigation where the browser supports it. */
-@view-transition {
-  navigation: auto;
-}
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 200ms;
+/* In-page view transitions (table re-sort): rows glide to their new place. */
+::view-transition-group(*) {
+  animation-duration: var(--dur-mid);
   animation-timing-function: var(--ease-out);
 }
 
@@ -667,10 +733,23 @@ svg text {
   position: sticky;
   top: 0;
   z-index: 20;
-  height: 56px;
+  height: var(--h-topbar);
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
+}
+@supports (animation-timeline: scroll()) {
+  .topbar {
+    border-bottom-color: transparent;
+    animation: topbar-edge linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 24px;
+  }
+  @keyframes topbar-edge {
+    to {
+      border-bottom-color: var(--border);
+    }
+  }
 }
 .wordmark {
   font-family: var(--font-display), sans-serif;
@@ -697,6 +776,24 @@ svg text {
 .nav-link[data-active="true"] {
   color: var(--text);
   border-bottom-color: var(--accent);
+}
+.topbar-nav {
+  position: relative;
+}
+.topbar-nav[data-slide="true"] .nav-link[data-active="true"] {
+  border-bottom-color: transparent;
+}
+.nav-ink {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: var(--w, 0);
+  background: var(--accent);
+  transform: translateX(var(--x, 0));
+  transition: transform var(--dur-spring) var(--spring),
+    width var(--dur-spring) var(--spring);
+  pointer-events: none;
 }
 
 /* Hamburger button (all breakpoints) — BRIEF §6 */
@@ -760,7 +857,8 @@ svg text {
   border-left: 1px solid var(--border);
   transform: translateX(100%);
   visibility: hidden;
-  transition: transform var(--dur-mid) var(--ease-out), visibility 0s linear var(--dur-mid);
+  transition: transform var(--dur-spring) var(--spring), visibility 0s linear var(--dur-spring);
+  touch-action: pan-y;
   display: flex;
   flex-direction: column;
   padding: 0.5rem 0 calc(1rem + env(safe-area-inset-bottom));
@@ -769,17 +867,28 @@ svg text {
 .nav-sheet[data-open="true"] {
   transform: translateX(0);
   visibility: visible;
-  transition: transform var(--dur-mid) var(--ease-out);
+  transition: transform var(--dur-spring) var(--spring);
+}
+/* while a finger drives it: no easing, 1:1 */
+.nav-sheet[data-dragging="true"],
+.nav-backdrop[data-dragging="true"] {
+  transition: none !important;
 }
 @media (min-width: 768px) {
   .nav-sheet {
     width: 320px;
   }
 }
+/* reduced motion: cross-fade instead of slide */
 @media (prefers-reduced-motion: reduce) {
-  .nav-sheet,
-  .nav-backdrop {
-    transition: none;
+  .nav-sheet {
+    transform: none;
+    opacity: 0;
+    transition: opacity 150ms linear, visibility 0s linear 150ms !important;
+  }
+  .nav-sheet[data-open="true"] {
+    opacity: 1;
+    transition: opacity 150ms linear !important;
   }
 }
 .nav-sheet-head {
@@ -821,8 +930,11 @@ svg text {
 /* Sticky section headings within long pages (BRIEF §7.7) */
 .sticky-h {
   position: sticky;
-  top: 56px;
+  top: var(--h-topbar);
   z-index: 10;
+  display: flex;
+  align-items: center;
+  min-height: var(--h-sticky-h);
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   backdrop-filter: blur(12px);
   margin-left: -1rem;
@@ -854,7 +966,8 @@ svg text {
 }
 .cmp-head {
   position: sticky;
-  top: 56px;
+  /* sits directly under the sticky section heading, never over it */
+  top: calc(var(--h-topbar) + var(--h-sticky-h));
   z-index: 5;
   display: flex;
   align-items: center;
@@ -953,6 +1066,7 @@ svg text {
    Aufstellungen — team toggle + single-column player rows (BRIEF §4)
 --------------------------------------------------------------------------- */
 .lineup-seg {
+  position: relative;
   display: flex;
   width: 100%;
   gap: 3px;
@@ -963,6 +1077,8 @@ svg text {
   margin-bottom: 1rem;
 }
 .lineup-seg-btn {
+  position: relative;
+  z-index: 1;
   flex: 1 1 0;
   min-height: 44px;
   display: flex;
@@ -979,9 +1095,7 @@ svg text {
   cursor: pointer;
 }
 .lineup-seg-btn[data-active="true"] {
-  background: var(--surface-raised);
   color: var(--text);
-  box-shadow: var(--highlight-top);
 }
 .lineup-list {
   list-style: none;
@@ -1170,4 +1284,36 @@ img {
 }
 [hidden] {
   display: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Accessibility media features
+--------------------------------------------------------------------------- */
+@media (prefers-reduced-transparency: reduce) {
+  .topbar,
+  .sticky-h {
+    background: var(--bg);
+    backdrop-filter: none;
+  }
+  .cmp-head {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+  .nav-backdrop {
+    background: rgba(0, 0, 0, 0.85);
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --border: #4b5260;
+    --border-strong: #8b929e;
+    --text-muted: #c9ced6;
+    --text-dim: #aab1bc;
+  }
+  .topbar,
+  .sticky-h,
+  .cmp-head {
+    background: var(--bg);
+    backdrop-filter: none;
+  }
 }

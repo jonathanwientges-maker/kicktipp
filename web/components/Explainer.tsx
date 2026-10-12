@@ -1,5 +1,5 @@
 "use client";
-import { useId, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * An inline "?" affordance that toggles a short glossary note. Purely
@@ -9,8 +9,50 @@ import { useId, useState } from "react";
 export function Explainer({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const popRef = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+
+  // keep the note inside the viewport, and grow it out of the "?" button
+  useLayoutEffect(() => {
+    if (!open) return;
+    const pop = popRef.current;
+    const root = rootRef.current;
+    if (!pop || !root) return;
+    const margin = 8;
+    const r = pop.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    let dx = 0;
+    if (r.right > vw - margin) dx = vw - margin - r.right;
+    if (r.left + dx < margin) dx = margin - r.left;
+    setShift(dx);
+    const btn = root.querySelector("button");
+    if (btn) {
+      const b = btn.getBoundingClientRect();
+      pop.style.setProperty("--ox", `${b.left + b.width / 2 - (r.left + dx)}px`);
+    }
+  }, [open]);
+
+  // dismiss on outside press and Escape
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+      setShift(0);
+    };
+  }, [open]);
+
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: label ? "0.4rem" : 0, position: "relative" }}>
+    <span ref={rootRef} style={{ display: "inline-flex", alignItems: "center", gap: label ? "0.4rem" : 0, position: "relative" }}>
       {label ? <span>{label}</span> : null}
       <button
         type="button"
@@ -41,11 +83,13 @@ export function Explainer({ label, children }: { label: string; children: React.
       {open && (
         <span
           id={id}
+          ref={popRef}
           role="note"
+          className="explainer-pop"
           style={{
             position: "absolute",
             top: "calc(100% + 8px)",
-            left: 0,
+            left: shift,
             zIndex: 30,
             width: "min(320px, 78vw)",
             padding: "0.75rem 0.85rem",

@@ -87,7 +87,12 @@ export function Lineups({
   return (
     <div className="surface" style={{ padding: "1rem" }}>
       {/* below 1024px: toggle + one team */}
-      <div className="lineup-seg" role="tablist" aria-label="Mannschaft wählen">
+      <div
+        className="lineup-seg"
+        role="tablist"
+        aria-label="Mannschaft wählen"
+        style={{ ["--n" as any]: 2, ["--i" as any]: side === "h" ? 0 : 1 }}
+      >
         <button
           role="tab"
           aria-selected={side === "h"}

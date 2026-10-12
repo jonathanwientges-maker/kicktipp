@@ -54,7 +54,7 @@ export function DataTable<Row extends { id: string | number }>({
   identifierHeader: React.ReactNode;
   renderIdentifier: (row: Row) => React.ReactNode;
   identifierColSpan?: number;
-  rowProps?: (row: Row) => Record<string, string | undefined>;
+  rowProps?: (row: Row) => Record<string, any>;
   caption?: string;
 }) {
   const [setIdx, setSetIdx] = useState(0);
@@ -97,7 +97,12 @@ export function DataTable<Row extends { id: string | number }>({
   return (
     <div className="dt">
       {columnSets.length > 1 && (
-        <div className="dt-seg" role="tablist" aria-label="Spaltenauswahl">
+        <div
+          className="dt-seg"
+          role="tablist"
+          aria-label="Spaltenauswahl"
+          style={{ ["--n" as any]: columnSets.length, ["--i" as any]: setIdx }}
+        >
           {columnSets.map((s, i) => (
             <button
               key={s.label}
@@ -187,13 +192,31 @@ function FragmentRow<Row extends { id: string | number }>({
   mobileCols: Col<Row>[];
   renderIdentifier: (row: Row) => React.ReactNode;
   identifierColSpan: number;
-  extra: Record<string, string | undefined>;
+  extra: Record<string, any>;
   isOpen: boolean;
   onToggle: () => void;
 }) {
   const cardCols = columns.filter((c) => !c.hideInCard);
   const mobileSpan = identifierColSpan + mobileCols.length + 1;
   const { className: extraClass, ...extraAttrs } = extra;
+
+  // open: mount collapsed, then expand next frame; close: collapse, then unmount
+  const [mounted, setMounted] = useState(false);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!isOpen) {
+      setShown(false);
+      return;
+    }
+    if (mounted) {
+      setShown(true);
+      return;
+    }
+    setMounted(true);
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   return (
     <>
@@ -212,6 +235,11 @@ function FragmentRow<Row extends { id: string | number }>({
         {...extraAttrs}
         className={`dt-row-mobile dt-tappable ${extraClass ?? ""}`}
         data-open={isOpen}
+        onClick={(e) => {
+          // the whole row is the target; the team link keeps its own tap
+          if ((e.target as HTMLElement).closest("a")) return;
+          onToggle();
+        }}
       >
         {renderIdentifier(row)}
         {mobileCols.map((c) => (
@@ -225,7 +253,6 @@ function FragmentRow<Row extends { id: string | number }>({
             className="dt-chev"
             aria-expanded={isOpen}
             aria-label={isOpen ? "Zeile einklappen" : "Alle Werte anzeigen"}
-            onClick={onToggle}
           >
             <span className="dt-chev-icon" data-open={isOpen} aria-hidden="true">
               ›
@@ -234,18 +261,28 @@ function FragmentRow<Row extends { id: string | number }>({
         </td>
       </tr>
 
-      {/* mobile expanded card */}
-      {isOpen && (
+      {/* mobile expanded card — stays mounted while it animates closed */}
+      {mounted && (
         <tr className="dt-row-mobile dt-cardrow">
           <td colSpan={mobileSpan}>
-            <dl className="dt-card">
-              {cardCols.map((c) => (
-                <div key={c.key} className="dt-card-pair">
-                  <dt className="label">{c.label}</dt>
-                  <dd className="num">{c.render(row)}</dd>
-                </div>
-              ))}
-            </dl>
+            <div
+              className="dt-card-wrap"
+              data-open={shown}
+              onTransitionEnd={(e) => {
+                if (e.target === e.currentTarget && !shown) setMounted(false);
+              }}
+            >
+              <div className="dt-card-clip">
+                <dl className="dt-card">
+                  {cardCols.map((c) => (
+                    <div key={c.key} className="dt-card-pair">
+                      <dt className="label">{c.label}</dt>
+                      <dd className="num">{c.render(row)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </div>
           </td>
         </tr>
       )}

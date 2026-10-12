@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import type { TableRow } from "@/lib/data";
 import { fmtInt, fmtNum, fmtSigned, fmtSignedInt, luckColor, luckPillBg, slugify } from "@/lib/format";
 import { teamColor, teamName } from "@/lib/teamColors";
@@ -28,7 +29,20 @@ export function TableToggle({
   table: TableRow[];
   history: { matchday: number; team: string; position: number }[];
 }) {
-  const [view, setView] = useState<View>("points");
+  const [view, setViewState] = useState<View>("points");
+
+  // rows glide to their new positions where view transitions are supported
+  const setView = (v: View) => {
+    const doc = document as Document & {
+      startViewTransition?: (cb: () => void) => unknown;
+    };
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!doc.startViewTransition || reduce) {
+      setViewState(v);
+      return;
+    }
+    doc.startViewTransition(() => flushSync(() => setViewState(v)));
+  };
 
   const sorted = [...table].sort((a, b) => {
     if (view === "xg") return b.xg_for - a.xg_for || b.xg_diff - a.xg_diff;
@@ -172,6 +186,7 @@ export function TableToggle({
         renderIdentifier={renderIdentifier}
         rowProps={(r) => ({
           "data-zone": view === "points" ? zone(r.pos) : undefined,
+          style: { viewTransitionName: `row-${slugify(r.team)}` },
         })}
       />
 
