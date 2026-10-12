@@ -60,7 +60,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="de" className={`${display.variable} ${body.variable}`}>
       <body>
         <ServiceWorker />
-        <div className="noise-overlay" aria-hidden="true" />
         <NavBar />
         <main
           className="container-page"

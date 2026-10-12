@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useInView } from "@/hooks/useInView";
 import { fmtNum, fmtInt, fmtSigned } from "@/lib/format";
 
@@ -11,16 +11,11 @@ function format(v: number, fmt: Fmt, dp: number): string {
   return fmtNum(v, dp);
 }
 
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
 /**
- * Counts from 0 to `value` on first view, over --dur-mid with --ease-out.
- * Renders the final value immediately when reduced motion is set.
+ * Always renders the real value (server HTML, no-JS, reduced motion, and
+ * anything already on screen). Only a number that starts below the fold is
+ * reset to 0 and counted up when it scrolls into view. The count writes to
+ * the DOM directly, so React does not re-render every frame.
  */
 export function CountUp({
   value,
@@ -34,35 +29,39 @@ export function CountUp({
   className?: string;
 }) {
   const [ref, inView] = useInView<HTMLSpanElement>();
-  const [display, setDisplay] = useState(() =>
-    prefersReducedMotion() ? value : 0,
-  );
-  const started = useRef(false);
+  const final = format(value, fmt, dp);
 
   useEffect(() => {
-    if (!inView || started.current) return;
-    started.current = true;
-    if (prefersReducedMotion() || typeof requestAnimationFrame === "undefined") {
-      setDisplay(value);
-      return;
+    const el = ref.current;
+    if (!el || inView) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (el.getBoundingClientRect().top >= window.innerHeight * 0.9) {
+      el.textContent = format(0, fmt, dp);
     }
+  }, [ref, inView, fmt, dp]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!inView || !el || el.textContent === final) return;
     const DUR = 350;
-    const ease = (t: number) => 1 - Math.pow(1 - t, 3); // ~ cubic-bezier(.16,1,.30,1)
+    const ease = (t: number) => 1 - Math.pow(1 - t, 3);
     const t0 = performance.now();
     let raf = 0;
     const tick = (now: number) => {
       const p = Math.min(1, (now - t0) / DUR);
-      setDisplay(value * ease(p));
+      el.textContent = p < 1 ? format(value * ease(p), fmt, dp) : final;
       if (p < 1) raf = requestAnimationFrame(tick);
-      else setDisplay(value);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [inView, value]);
+    return () => {
+      cancelAnimationFrame(raf);
+      el.textContent = final;
+    };
+  }, [inView, value, fmt, dp, final, ref]);
 
   return (
     <span ref={ref} className={className}>
-      {format(display, fmt, dp)}
+      {final}
     </span>
   );
 }
