@@ -1,20 +1,26 @@
 import type { Metadata, Viewport } from "next";
-import { Archivo, Public_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { getManifest } from "@/lib/data";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import { NavBar } from "@/components/NavBar";
 
-const display = Archivo({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
+const display = localFont({
+  src: [
+    { path: "./fonts/archivo-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/archivo-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/archivo-latin-700-normal.woff2", weight: "700", style: "normal" },
+  ],
   variable: "--font-display",
   display: "swap",
 });
 
-const body = Public_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+const body = localFont({
+  src: [
+    { path: "./fonts/public-sans-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/public-sans-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/public-sans-latin-600-normal.woff2", weight: "600", style: "normal" },
+  ],
   variable: "--font-body",
   display: "swap",
 });
