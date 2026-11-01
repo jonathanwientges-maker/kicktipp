@@ -1532,7 +1532,9 @@ img {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  white-space: nowrap;
+  text-align: center;
+  max-width: 16ch;
+  line-height: 1.3;
   font-size: var(--fs-label);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1666,4 +1668,178 @@ img {
   .fx-profiles {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Team-page charts: readout, axis text, legends, bar comparisons
+--------------------------------------------------------------------------- */
+.chart-readout {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.15rem 1rem;
+  min-height: 2.6rem;
+  margin-bottom: 0.4rem;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+.chart-readout strong {
+  color: var(--text);
+}
+.chart-tick {
+  font-size: 11px;
+  fill: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.chart-tick-dim {
+  fill: var(--text-dim);
+}
+.chart-end {
+  font-size: 11px;
+  font-weight: 700;
+}
+.chart-take {
+  margin: 0 0 0.75rem;
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.1rem;
+  margin-top: 0.6rem;
+  font-size: var(--fs-label);
+  color: var(--text-dim);
+}
+.chart-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.lg-line {
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+.lg-dash {
+  background: repeating-linear-gradient(90deg, var(--text-muted) 0 5px, transparent 5px 8px);
+}
+.lg-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.lg-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text);
+}
+.lg-hollow {
+  background: transparent;
+  border: 1.75px solid var(--text);
+}
+.lg-tick {
+  width: 2px;
+  height: 12px;
+  background: var(--text);
+}
+svg rect[role="button"]:focus-visible {
+  outline: 2px solid var(--accent) !important;
+}
+
+.cbars,
+.sbars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.cbar-row {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  font-size: var(--fs-small);
+}
+.cbar-label {
+  color: var(--text-muted);
+}
+.cbar-track,
+.sbar-track {
+  position: relative;
+  display: flex;
+  height: 14px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-dim) 14%, transparent);
+  overflow: visible;
+}
+.cbar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+.cbar-tick {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  background: var(--text);
+}
+.cbar-val {
+  grid-column: 2;
+  font-size: var(--fs-label);
+}
+.sbar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.sbar-row {
+  display: grid;
+  grid-template-columns: 4rem 1fr 2.6rem;
+  gap: 0.6rem;
+  align-items: center;
+  font-size: var(--fs-small);
+}
+.sbar-label {
+  color: var(--text-muted);
+}
+.sbar-row[data-ghost="true"] .sbar-label {
+  color: var(--text-dim);
+}
+.sbar-seg {
+  display: block;
+  height: 100%;
+}
+.sbar-seg:first-child {
+  border-radius: 3px 0 0 3px;
+}
+.sbar-val {
+  text-align: right;
+}
+@media (min-width: 640px) {
+  .cbar-row {
+    grid-template-columns: 7.5rem 1fr 11rem;
+  }
+  .cbar-val {
+    grid-column: auto;
+  }
+}
+.team-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 1rem 1.5rem;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 2rem;
+}
+.team-kpis .kpi-val {
+  font-family: var(--font-display), sans-serif;
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.team-kpis .kpi-sub {
+  font-size: var(--fs-label);
+  color: var(--text-dim);
 }

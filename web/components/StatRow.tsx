@@ -18,8 +18,8 @@ export function StatRow({
   homeBigger,
 }: {
   label: string;
-  hint: string;
-  explain: React.ReactNode;
+  hint?: string;
+  explain?: React.ReactNode;
   homeText: string;
   awayText: string;
   homePct: number;
@@ -38,23 +38,25 @@ export function StatRow({
         </span>
         <span className="fx-stat-label">
           {label}
-          <button
-            type="button"
-            className="fx-q"
-            data-open={open}
-            aria-expanded={open}
-            aria-controls={id}
-            aria-label={`Erklärung: ${label}`}
-            onClick={() => setOpen((v) => !v)}
-          >
-            ?
-          </button>
+          {explain && (
+            <button
+              type="button"
+              className="fx-q"
+              data-open={open}
+              aria-expanded={open}
+              aria-controls={id}
+              aria-label={`Erklärung: ${label}`}
+              onClick={() => setOpen((v) => !v)}
+            >
+              ?
+            </button>
+          )}
         </span>
         <span className="cmp-val away" data-bigger={!homeBigger}>
           {awayText}
         </span>
       </div>
-      <div className="fx-hint">{hint}</div>
+      {hint && <div className="fx-hint">{hint}</div>}
       <div className="cmp-bar" aria-hidden="true">
         <span className="cmp-bar-half home">
           <span className="cmp-bar-fill" style={{ width: `${homePct}%`, background: homeColor }} />
@@ -63,7 +65,7 @@ export function StatRow({
           <span className="cmp-bar-fill" style={{ width: `${awayPct}%`, background: awayColor }} />
         </span>
       </div>
-      {open && (
+      {open && explain && (
         <div id={id} role="note" className="fx-note">
           {explain}
         </div>

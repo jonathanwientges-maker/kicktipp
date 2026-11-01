@@ -8,14 +8,16 @@
 // Server component — no client JS.
 import { teamColor } from "@/lib/teamColors";
 import { TeamChip } from "./TeamChip";
-import { Explainer } from "./Explainer";
+import { StatRow } from "./StatRow";
 import { GLOSSARY } from "@/lib/glossary";
 
 export type CmpRow = {
-  /** long label (>=480px) */
+  /** one short label, shown once */
   label: string;
-  /** short label (<480px); defaults to `label` */
-  short?: string;
+  /** one-line hint under the label */
+  hint?: string;
+  /** explanation opened by the "?" (inline); falls back to GLOSSARY[info] */
+  explain?: React.ReactNode;
   home: number;
   away: number;
   /** raw display strings; default to the numbers themselves */
@@ -47,41 +49,20 @@ export function CompareBlock({
 
       {rows.map((r) => {
         const total = r.home + r.away;
-        const homePct = total > 0 ? (r.home / total) * 100 : 0;
-        const awayPct = total > 0 ? (r.away / total) * 100 : 0;
-        const homeBigger = r.home >= r.away;
         return (
-          <div className="cmp-row" key={r.label}>
-            <div className="cmp-vals">
-              <span className="cmp-val home" data-bigger={homeBigger}>
-                {r.homeText ?? r.home}
-              </span>
-              <span className="cmp-label">
-                {r.info ? (
-                  <Explainer label="">{GLOSSARY[r.info]}</Explainer>
-                ) : null}
-                <span className="cmp-full">{r.label}</span>
-                <span className="cmp-short">{r.short ?? r.label}</span>
-              </span>
-              <span className="cmp-val away" data-bigger={!homeBigger}>
-                {r.awayText ?? r.away}
-              </span>
-            </div>
-            <div className="cmp-bar" aria-hidden="true">
-              <span className="cmp-bar-half home">
-                <span
-                  className="cmp-bar-fill"
-                  style={{ width: `${homePct}%`, background: homeColor }}
-                />
-              </span>
-              <span className="cmp-bar-half away">
-                <span
-                  className="cmp-bar-fill"
-                  style={{ width: `${awayPct}%`, background: awayColor }}
-                />
-              </span>
-            </div>
-          </div>
+          <StatRow
+            key={r.label}
+            label={r.label}
+            hint={r.hint}
+            explain={r.explain ?? (r.info ? GLOSSARY[r.info] : undefined)}
+            homeText={r.homeText ?? String(r.home)}
+            awayText={r.awayText ?? String(r.away)}
+            homePct={total > 0 ? (r.home / total) * 100 : 0}
+            awayPct={total > 0 ? (r.away / total) * 100 : 0}
+            homeColor={homeColor}
+            awayColor={awayColor}
+            homeBigger={r.home >= r.away}
+          />
         );
       })}
     </div>
