@@ -3,9 +3,9 @@
 import Link from "next/link";
 import type { FixtureAnalysis, FormGame, SideAnalysis } from "@/lib/fixtureAnalysis";
 import { fmtDate, fmtNum, fmtSigned, slugify } from "@/lib/format";
-import { teamName } from "@/lib/teamColors";
+import { teamColor, teamName } from "@/lib/teamColors";
 import { teamCode } from "@/lib/teamCodes";
-import { CompareBlock, type CmpRow } from "./CompareBlock";
+import { StatRow } from "./StatRow";
 import { TeamChip } from "./TeamChip";
 
 const pct = (p: number) => `${fmtNum(p * 100, p < 0.01 && p > 0 ? 1 : 0)} %`;
@@ -95,78 +95,80 @@ function Profile({ s }: { s: SideAnalysis }) {
   );
 }
 
+type Stat = {
+  label: string;
+  hint: string;
+  explain: string;
+  home: number;
+  away: number;
+  dp: number;
+};
+
 export function FixtureDetail({ a }: { a: FixtureAnalysis }) {
   const { home: h, away: aw } = a;
-  const rows: CmpRow[] = [
+  const stats: Stat[] = [
     {
-      label: "Punkte pro Spiel",
-      short: "Pkt/Sp",
+      label: "Pkt/Spiel",
+      hint: "Ergebnisse bisher",
+      explain:
+        "Tatsächlich geholte Punkte pro Spiel. Mehr ist besser. Zeigt, wie die Saison bisher gelaufen ist — nicht unbedingt, wie gut das Team spielt (siehe xPkt).",
       home: h.ppg,
       away: aw.ppg,
-      homeText: fmtNum(h.ppg, 2),
-      awayText: fmtNum(aw.ppg, 2),
+      dp: 2,
     },
     {
-      label: "xPunkte pro Spiel",
-      short: "xPkt/Sp",
+      label: "xPkt/Spiel",
+      hint: "Was die Chancen wert waren",
+      explain:
+        "Punkte pro Spiel, die das Team nach Qualität seiner Chancen im Schnitt geholt hätte. Liegt xPkt deutlich über Pkt, war das Team besser als sein Ergebnis — und umgekehrt.",
       home: h.xppg,
       away: aw.xppg,
-      homeText: fmtNum(h.xppg, 2),
-      awayText: fmtNum(aw.xppg, 2),
-      info: "xpunkte",
+      dp: 2,
     },
     {
-      label: "xG pro Spiel",
-      short: "xG",
+      label: "xG",
+      hint: "Gefahr im Angriff",
+      explain:
+        "Erwartete Tore pro Spiel aus den eigenen Schüssen (Position, Winkel, Situation). Mehr ist besser. Ein hoher Wert heißt: das Team kommt oft zu guten Chancen.",
       home: h.xgfPg,
       away: aw.xgfPg,
-      homeText: fmtNum(h.xgfPg, 2),
-      awayText: fmtNum(aw.xgfPg, 2),
-      info: "xg",
+      dp: 2,
     },
     {
-      label: "xG zugelassen (niedriger = besser)",
-      short: "xGA",
+      label: "xGA",
+      hint: "Gegnerchancen · weniger = besser",
+      explain:
+        "Erwartete Tore, die der Gegner pro Spiel gegen dieses Team herausgespielt hat. Niedriger ist besser: die Abwehr lässt wenig Gefährliches zu.",
       home: h.xgaPg,
       away: aw.xgaPg,
-      homeText: fmtNum(h.xgaPg, 2),
-      awayText: fmtNum(aw.xgaPg, 2),
+      dp: 2,
     },
   ];
   if (h.ppda !== null && aw.ppda !== null) {
-    rows.push({
-      label: "PPDA (niedriger = mehr Pressing)",
-      short: "PPDA",
+    stats.push({
+      label: "PPDA",
+      hint: "Pressing · niedriger = aggressiver",
+      explain:
+        "Wie viele gegnerische Pässe ein Team zulässt, bevor es eingreift. Niedrig heißt hohes, aggressives Pressing; hoch heißt tieferes, passives Verteidigen.",
       home: h.ppda,
       away: aw.ppda,
-      homeText: fmtNum(h.ppda, 1),
-      awayText: fmtNum(aw.ppda, 1),
+      dp: 1,
     });
   }
   if (h.deep !== null && aw.deep !== null) {
-    rows.push({
-      label: "Zuspiele in Tornähe",
-      short: "Tornähe",
+    stats.push({
+      label: "Tornähe",
+      hint: "Pässe nahe am Tor",
+      explain:
+        "Angekommene Pässe im Bereich von etwa 20 Metern vor dem gegnerischen Tor, pro Spiel. Mehr heißt: das Team erreicht die gefährliche Zone oft.",
       home: h.deep,
       away: aw.deep,
-      homeText: fmtNum(h.deep, 1),
-      awayText: fmtNum(aw.deep, 1),
+      dp: 1,
     });
   }
 
   return (
     <div className="fx-detail">
-      {a.insights.length > 0 && (
-        <section>
-          <div className="label fx-label">Worauf achten</div>
-          <ul className="fx-insights">
-            {a.insights.map((t) => (
-              <li key={t}>{t}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       <section>
         <div className="label fx-label">Chancenprofil</div>
         <div className="fx-expected">
@@ -175,13 +177,35 @@ export function FixtureDetail({ a }: { a: FixtureAnalysis }) {
           <span className="num">{fmtNum(a.expectedXg.away, 1)}</span>
         </div>
         <p className="muted fx-small" style={{ margin: "0.25rem 0 0", textAlign: "center" }}>
-          Mittel aus eigenem Angriff und gegnerischer Abwehr — ein einfaches Profil, kein Modelltipp.
+          Mittel aus eigenem Angriff und gegnerischer Abwehr — kein Modelltipp.
         </p>
       </section>
 
-      <div className="fx-cmp">
-        <CompareBlock home={h.team} away={aw.team} rows={rows} />
-      </div>
+      <section className="fx-cmp">
+        <div className="cmp-head">
+          <TeamChip team={h.team} variant="code" />
+          <span className="label">Die Zahlen</span>
+          <TeamChip team={aw.team} variant="code" />
+        </div>
+        {stats.map((st) => {
+          const total = st.home + st.away;
+          return (
+            <StatRow
+              key={st.label}
+              label={st.label}
+              hint={st.hint}
+              explain={st.explain}
+              homeText={fmtNum(st.home, st.dp)}
+              awayText={fmtNum(st.away, st.dp)}
+              homePct={total > 0 ? (st.home / total) * 100 : 0}
+              awayPct={total > 0 ? (st.away / total) * 100 : 0}
+              homeColor={teamColor(h.team).color}
+              awayColor={teamColor(aw.team).color}
+              homeBigger={st.home >= st.away}
+            />
+          );
+        })}
+      </section>
 
       <section className="fx-profiles">
         <Profile s={h} />

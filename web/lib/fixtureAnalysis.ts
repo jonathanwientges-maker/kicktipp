@@ -13,8 +13,6 @@ import {
   type TeamPage,
   type UpcomingFixture,
 } from "./data";
-import { fmtNum } from "./format";
-import { teamName } from "./teamColors";
 
 export type FormGame = {
   opponent: string;
@@ -64,7 +62,6 @@ export type FixtureAnalysis = {
   } | null;
   /** simple xG profile (attack vs. opposing defence) -- not a model tip */
   expectedXg: { home: number; away: number };
-  insights: string[];
 };
 
 const FORM_N = 5;
@@ -185,10 +182,6 @@ export function analyzeFixture(
     };
   }
 
-  // league average xG per team and game, to judge "strong attack / leaky defence"
-  const games = sum(table.map((t) => t.played));
-  const leagueXg = games ? sum(table.map((t) => t.xg_for)) / games : 1.4;
-
   const expectedXg = {
     home: (home.xgfPg + away.xgaPg) / 2,
     away: (away.xgfPg + home.xgaPg) / 2,
@@ -199,79 +192,5 @@ export function analyzeFixture(
     away,
     h2h: h2hOut,
     expectedXg,
-    insights: buildInsights(home, away, h2hOut, leagueXg),
   };
-}
-
-function buildInsights(
-  h: SideAnalysis,
-  a: SideAnalysis,
-  h2h: FixtureAnalysis["h2h"],
-  leagueXg: number,
-): string[] {
-  const out: string[] = [];
-  const hn = teamName(h.team);
-  const an = teamName(a.team);
-
-  const minPlayed = Math.min(h.row.played, a.row.played);
-  if (minPlayed < 8) {
-    out.push(`Erst ${minPlayed} Spiele gespielt — alle Werte sind noch eine kleine Stichprobe.`);
-  }
-
-  // luck: points above/below what the chances earned
-  for (const s of [h, a]) {
-    const l = s.row.luck;
-    if (Math.abs(l) >= 3) {
-      out.push(
-        l > 0
-          ? `${teamName(s.team)} hat ${fmtNum(l, 1)} Punkte mehr geholt, als die Chancen hergaben (xPunkte ${fmtNum(s.row.xpoints, 1)}) — Rückschlagsgefahr.`
-          : `${teamName(s.team)} liegt ${fmtNum(-l, 1)} Punkte unter den xPunkten (${fmtNum(s.row.xpoints, 1)}) — die Leistung war besser als die Tabelle.`,
-      );
-    }
-  }
-
-  // form vs. season level
-  for (const s of [h, a]) {
-    if (s.form.length >= 3) {
-      const formPpg = s.formPts / s.form.length;
-      const d = formPpg - s.ppg;
-      if (d >= 0.7) out.push(`${teamName(s.team)} ist in Form: ${fmtNum(formPpg, 1)} Punkte pro Spiel zuletzt (Saison ${fmtNum(s.ppg, 1)}).`);
-      else if (d <= -0.7) out.push(`${teamName(s.team)} kriselt: ${fmtNum(formPpg, 1)} Punkte pro Spiel zuletzt (Saison ${fmtNum(s.ppg, 1)}).`);
-    }
-  }
-
-  // attack meets defence
-  if (h.xgfPg >= leagueXg * 1.15 && a.xgaPg >= leagueXg * 1.1) {
-    out.push(`${hn} hat einen starken Angriff (${fmtNum(h.xgfPg, 2)} xG/Spiel) gegen eine anfällige Abwehr (${an}: ${fmtNum(a.xgaPg, 2)} xGA/Spiel).`);
-  }
-  if (a.xgfPg >= leagueXg * 1.15 && h.xgaPg >= leagueXg * 1.1) {
-    out.push(`${an} hat einen starken Angriff (${fmtNum(a.xgfPg, 2)} xG/Spiel) gegen eine anfällige Abwehr (${hn}: ${fmtNum(h.xgaPg, 2)} xGA/Spiel).`);
-  }
-  if (h.xgfPg <= leagueXg * 0.85 && a.xgfPg <= leagueXg * 0.85) {
-    out.push("Beide Teams erspielen wenig Chancen — tendenziell ein torarmes Spiel.");
-  }
-
-  // venue strength
-  if (h.venue && h.venue.games >= 2 && a.venue && a.venue.games >= 2) {
-    const gap = h.venue.ppg - a.venue.ppg;
-    if (gap >= 1.2) out.push(`Heimstärke gegen Auswärtsschwäche: ${hn} ${fmtNum(h.venue.ppg, 1)} P/Spiel zuhause, ${an} ${fmtNum(a.venue.ppg, 1)} auswärts.`);
-    else if (gap <= -1.2) out.push(`${an} punktet auswärts (${fmtNum(a.venue.ppg, 1)} P/Spiel) stärker als ${hn} zuhause (${fmtNum(h.venue.ppg, 1)}).`);
-  }
-
-  // quality gap in chance terms
-  const gap = (h.row.xg_diff / (h.row.played || 1)) - (a.row.xg_diff / (a.row.played || 1));
-  if (Math.abs(gap) >= 0.8) {
-    out.push(`Klarer Qualitätsunterschied bei den Chancen: ${gap > 0 ? hn : an} liegt ${fmtNum(Math.abs(gap), 2)} xG-Diff pro Spiel vorne.`);
-  }
-
-  if (h2h && h2h.record.played >= 4) {
-    const share = Math.max(h2h.record.home, h2h.record.away) / h2h.record.played;
-    if (share >= 0.6) {
-      const homeLeads = h2h.record.home > h2h.record.away;
-      const wins = homeLeads ? h2h.record.home : h2h.record.away;
-      const losses = homeLeads ? h2h.record.away : h2h.record.home;
-      out.push(`${homeLeads ? hn : an} dominiert die Bilanz (${wins} S, ${h2h.record.draw} U, ${losses} N aus ${h2h.record.played} Spielen).`);
-    }
-  }
-  return out;
 }
