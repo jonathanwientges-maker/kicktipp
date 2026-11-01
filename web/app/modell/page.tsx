@@ -1,7 +1,6 @@
 import { getManifest, getModelPerformance, getPredictedTable, getSeasonTable } from "@/lib/data";
 import { Section } from "@/components/Section";
 import { fmtInt, fmtSignedInt } from "@/lib/format";
-import { ModelPointsChart } from "@/components/charts/ModelPointsChart";
 import { CountUp } from "@/components/motion/CountUp";
 import { Explainer } from "@/components/Explainer";
 import { GLOSSARY } from "@/lib/glossary";
@@ -114,12 +113,6 @@ export default function ModellPage() {
           </div>
         </Section>
       )}
-
-      <Section title="Punkte kumuliert vs. „immer 2:1“">
-        <div className="surface" style={{ padding: "1rem" }}>
-          <ModelPointsChart rows={perf} />
-        </div>
-      </Section>
     </>
   );
 }

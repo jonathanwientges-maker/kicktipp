@@ -42,6 +42,11 @@
   --negative: #fb7185;
   --warning: #fbbf24;
 
+  /* Luck hues — deliberately NOT green/red: positive luck is not "good", it is
+     regression risk. Amber = more points than the chances earned, blue = fewer. */
+  --luck-hot: #f5a524;
+  --luck-cold: #5eb1ff;
+
   /* Radii */
   --r-sm: 6px;
   --r-md: 10px;
@@ -349,6 +354,128 @@ td.num {
   z-index: 1;
 }
 
+/* rank shift chip (Δ-Rang): ▲ deserves a better rank (blue), ▼ a worse one (amber) */
+.rank-shift {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--r-full);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+.rank-shift[data-dir="up"] {
+  color: var(--luck-cold);
+}
+.rank-shift[data-dir="down"] {
+  color: var(--luck-hot);
+}
+.rank-shift[data-strong="true"] {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+/* dumbbell: hollow dot = xPunkte, filled dot = Punkte, line = luck */
+.dumbbell {
+  position: relative;
+  height: 22px;
+  min-width: 110px;
+}
+.dumbbell-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--border);
+}
+.dumbbell-link {
+  position: absolute;
+  top: 50%;
+  height: 3px;
+  transform: translateY(-50%);
+  border-radius: var(--r-full);
+  background: var(--c, var(--text-dim));
+}
+.dumbbell-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.dumbbell-dot[data-k="x"] {
+  border: 2px solid var(--c, var(--text-muted));
+  background: var(--surface);
+}
+.dumbbell-dot[data-k="p"] {
+  background: var(--text);
+}
+
+/* diverging luck bar, centred on zero */
+.luckbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 140px;
+}
+.luckbar-track {
+  position: relative;
+  flex: 1;
+  height: 24px;
+}
+.luckbar-track::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--border-strong);
+}
+.luckbar-fill {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--c) 55%, transparent);
+  border: 1px solid var(--c);
+}
+.luckbar-val {
+  min-width: 3rem;
+  text-align: right;
+  font-weight: 600;
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+}
+
+/* misfit insight strip + per-view blurb */
+.insight-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+.insight-strip a {
+  color: var(--text);
+  font-weight: 600;
+}
+.insight-strip [data-dir] {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.insight-strip [data-dir="hot"] {
+  color: var(--luck-hot);
+}
+.insight-strip [data-dir="cold"] {
+  color: var(--luck-cold);
+}
+
 /* luck pill */
 .luck-pill {
   display: inline-block;
@@ -559,6 +686,17 @@ tr[data-zone="drop"] td:first-child {
 }
 .dt-tappable {
   cursor: pointer;
+}
+@media (hover: hover) {
+  .dt-tappable:hover {
+    background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+  }
+}
+@media (min-width: 768px) {
+  .dt-card {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    padding: 1rem 12px 1.1rem;
+  }
 }
 .dt-tappable:active,
 .dt-tappable[data-open="true"] {
@@ -1315,5 +1453,177 @@ img {
   .cmp-head {
     background: var(--bg);
     backdrop-filter: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Fixture cards — "Als Nächstes" with unfoldable match analysis
+--------------------------------------------------------------------------- */
+.fx-card {
+  overflow: hidden;
+}
+.fx-head {
+  padding: 1.05rem;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .fx-head:hover {
+    background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+  }
+}
+.fx-head:active {
+  background: var(--surface-raised);
+}
+.fx-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  font-size: var(--fs-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.fx-body[data-open="false"] {
+  visibility: hidden;
+  transition: grid-template-rows var(--dur-mid) var(--ease-out), visibility 0s var(--dur-mid);
+}
+.fx-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1rem 1.05rem 1.15rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.fx-label {
+  margin-bottom: 0.4rem;
+}
+.fx-small {
+  font-size: var(--fs-small);
+}
+.fx-insights {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: var(--fs-small);
+}
+.fx-expected {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: baseline;
+  gap: 0.75rem;
+  text-align: center;
+  font-family: var(--font-display), sans-serif;
+}
+.fx-expected > .num {
+  font-size: var(--fs-display-m);
+  font-weight: 700;
+}
+.fx-expected > .muted {
+  font-size: var(--fs-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+/* the shared comparison block, flattened to sit inside the card */
+.fx-cmp .cmp {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.fx-cmp .cmp-head {
+  position: static;
+  background: transparent;
+  backdrop-filter: none;
+}
+.fx-profiles {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+.fx-profile-head {
+  margin-bottom: 0.5rem;
+}
+.fx-facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: var(--fs-small);
+}
+.fx-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.fx-facts dt {
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+.fx-facts dd {
+  margin: 0;
+  text-align: right;
+}
+.fx-form {
+  display: flex;
+  gap: 0.35rem;
+}
+.fx-game {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 0.3rem 0.1rem;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border-top: 2px solid var(--text-dim);
+}
+.fx-game[data-res="W"] {
+  border-top-color: var(--positive);
+}
+.fx-game[data-res="L"] {
+  border-top-color: var(--negative);
+}
+.fx-res {
+  font-weight: 700;
+  font-size: var(--fs-small);
+}
+.fx-opp {
+  font-size: var(--fs-label);
+  color: var(--text-muted);
+}
+.fx-score {
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.fx-xg {
+  font-size: var(--fs-label);
+  color: var(--text-dim);
+}
+.fx-meetings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: var(--fs-small);
+}
+.fx-meeting {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+@media (min-width: 640px) {
+  .fx-profiles {
+    grid-template-columns: 1fr 1fr;
   }
 }

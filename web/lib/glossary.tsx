@@ -59,8 +59,9 @@ export const GLOSSARY: Record<string, ReactNode> = {
   ),
   xgtabelle: (
     <>
-      <strong>xG-Tabelle</strong> sortiert nach erzielten xG statt nach echten Toren — sie zeigt,
-      wo ein Team stünde, wenn jede Chance exakt ihren Erwartungswert eingebracht hätte.
+      <strong>xG-Tabelle</strong> sortiert nach xPunkten statt nach echten Punkten — sie zeigt,
+      wo ein Team stünde, wenn jede Chance, im Angriff wie in der Abwehr, exakt ihren
+      Erwartungswert eingebracht hätte.
     </>
   ),
   xarace: (

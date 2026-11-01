@@ -47,6 +47,9 @@ export function DataTable<Row extends { id: string | number }>({
   /** optional per-row attributes for the <tr> (e.g. data-zone) */
   rowProps,
   caption,
+  desktopKeys,
+  cardColumns,
+  expandOnDesktop = false,
 }: {
   columns: Col<Row>[];
   rows: Row[];
@@ -56,6 +59,12 @@ export function DataTable<Row extends { id: string | number }>({
   identifierColSpan?: number;
   rowProps?: (row: Row) => Record<string, any>;
   caption?: string;
+  /** keys rendered on desktop (default: every column) */
+  desktopKeys?: string[];
+  /** columns listed in the expanded card (default: every column) */
+  cardColumns?: Col<Row>[];
+  /** make rows expandable on desktop too (chevron column + card row) */
+  expandOnDesktop?: boolean;
 }) {
   const [setIdx, setSetIdx] = useState(0);
   const [openId, setOpenId] = useState<string | number | null>(null);
@@ -66,6 +75,7 @@ export function DataTable<Row extends { id: string | number }>({
 
   const activeKeys = new Set(columnSets[setIdx]?.keys ?? columns.map((c) => c.key));
   const mobileCols = columns.filter((c) => activeKeys.has(c.key));
+  const desktopCols = desktopKeys ? columns.filter((c) => desktopKeys.includes(c.key)) : columns;
 
   const measure = useCallback(() => {
     const el = scrollRef.current;
@@ -89,7 +99,7 @@ export function DataTable<Row extends { id: string | number }>({
       el.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", measure);
     };
-  }, [measure, setIdx]);
+  }, [measure, setIdx, columnSets[setIdx]?.keys.join(), desktopKeys?.join()]);
 
   const showFade = overflow && !atEnd;
   const showHint = overflow && !scrolled;
@@ -135,11 +145,12 @@ export function DataTable<Row extends { id: string | number }>({
             {/* desktop header — all columns */}
             <tr className="dt-row-desktop">
               {identifierHeader}
-              {columns.map((c) => (
+              {desktopCols.map((c) => (
                 <th key={c.key} className={c.numeric ? "num" : undefined}>
                   {c.label}
                 </th>
               ))}
+              {expandOnDesktop && <th aria-hidden="true" className="dt-chevcol" />}
             </tr>
             {/* mobile header — identifier + active set */}
             <tr className="dt-row-mobile">
@@ -160,7 +171,9 @@ export function DataTable<Row extends { id: string | number }>({
                 <FragmentRow
                   key={row.id}
                   row={row}
-                  columns={columns}
+                  columns={cardColumns ?? columns}
+                  desktopCols={desktopCols}
+                  expandOnDesktop={expandOnDesktop}
                   mobileCols={mobileCols}
                   renderIdentifier={renderIdentifier}
                   identifierColSpan={identifierColSpan}
@@ -180,6 +193,8 @@ export function DataTable<Row extends { id: string | number }>({
 function FragmentRow<Row extends { id: string | number }>({
   row,
   columns,
+  desktopCols,
+  expandOnDesktop,
   mobileCols,
   renderIdentifier,
   identifierColSpan,
@@ -188,7 +203,10 @@ function FragmentRow<Row extends { id: string | number }>({
   onToggle,
 }: {
   row: Row;
+  /** card columns */
   columns: Col<Row>[];
+  desktopCols: Col<Row>[];
+  expandOnDesktop: boolean;
   mobileCols: Col<Row>[];
   renderIdentifier: (row: Row) => React.ReactNode;
   identifierColSpan: number;
@@ -197,6 +215,7 @@ function FragmentRow<Row extends { id: string | number }>({
   onToggle: () => void;
 }) {
   const cardCols = columns.filter((c) => !c.hideInCard);
+  const desktopSpan = identifierColSpan + desktopCols.length + (expandOnDesktop ? 1 : 0);
   const mobileSpan = identifierColSpan + mobileCols.length + 1;
   const { className: extraClass, ...extraAttrs } = extra;
 
@@ -220,14 +239,40 @@ function FragmentRow<Row extends { id: string | number }>({
 
   return (
     <>
-      {/* desktop row — all columns, not interactive */}
-      <tr {...extraAttrs} className={`dt-row-desktop ${extraClass ?? ""}`}>
+      {/* desktop row — the view's columns; tap toggles the card when enabled */}
+      <tr
+        {...extraAttrs}
+        className={`dt-row-desktop ${expandOnDesktop ? "dt-tappable" : ""} ${extraClass ?? ""}`}
+        data-open={isOpen}
+        onClick={
+          expandOnDesktop
+            ? (e) => {
+                if ((e.target as HTMLElement).closest("a")) return;
+                onToggle();
+              }
+            : undefined
+        }
+      >
         {renderIdentifier(row)}
-        {columns.map((c) => (
+        {desktopCols.map((c) => (
           <td key={c.key} className={c.numeric ? "num" : undefined}>
             {c.render(row)}
           </td>
         ))}
+        {expandOnDesktop && (
+          <td className="dt-chevcol">
+            <button
+              type="button"
+              className="dt-chev"
+              aria-expanded={isOpen}
+              aria-label={isOpen ? "Zeile einklappen" : "Alle Werte anzeigen"}
+            >
+              <span className="dt-chev-icon" data-open={isOpen} aria-hidden="true">
+                ›
+              </span>
+            </button>
+          </td>
+        )}
       </tr>
 
       {/* mobile row — identifier + active set + chevron; tap toggles card */}
@@ -261,31 +306,35 @@ function FragmentRow<Row extends { id: string | number }>({
         </td>
       </tr>
 
-      {/* mobile expanded card — stays mounted while it animates closed */}
-      {mounted && (
-        <tr className="dt-row-mobile dt-cardrow">
-          <td colSpan={mobileSpan}>
-            <div
-              className="dt-card-wrap"
-              data-open={shown}
-              onTransitionEnd={(e) => {
-                if (e.target === e.currentTarget && !shown) setMounted(false);
-              }}
-            >
-              <div className="dt-card-clip">
-                <dl className="dt-card">
-                  {cardCols.map((c) => (
-                    <div key={c.key} className="dt-card-pair">
-                      <dt className="label">{c.label}</dt>
-                      <dd className="num">{c.render(row)}</dd>
-                    </div>
-                  ))}
-                </dl>
+      {/* expanded card — stays mounted while it animates closed; one row per breakpoint */}
+      {mounted &&
+        [
+          ["dt-row-mobile", mobileSpan],
+          ...(expandOnDesktop ? [["dt-row-desktop", desktopSpan]] : []),
+        ].map(([cls, span]) => (
+          <tr key={cls as string} className={`${cls} dt-cardrow`}>
+            <td colSpan={span as number}>
+              <div
+                className="dt-card-wrap"
+                data-open={shown}
+                onTransitionEnd={(e) => {
+                  if (e.target === e.currentTarget && !shown) setMounted(false);
+                }}
+              >
+                <div className="dt-card-clip">
+                  <dl className="dt-card">
+                    {cardCols.map((c) => (
+                      <div key={c.key} className="dt-card-pair">
+                        <dt className="label">{c.label}</dt>
+                        <dd className="num">{c.render(row)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
               </div>
-            </div>
-          </td>
-        </tr>
-      )}
+            </td>
+          </tr>
+        ))}
     </>
   );
 }

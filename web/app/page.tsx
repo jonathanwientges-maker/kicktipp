@@ -1,11 +1,9 @@
 import Link from "next/link";
 import {
-  getH2H,
   getManifest,
   getSeasonMatches,
   getSeasonTable,
   getStatOfWeek,
-  h2hSlug,
   slugify,
 } from "@/lib/data";
 import { Section } from "@/components/Section";
@@ -17,6 +15,9 @@ import { Sparkline } from "@/components/charts/Sparkline";
 import { Reveal } from "@/components/motion/Reveal";
 import { CountUp } from "@/components/motion/CountUp";
 import { TeamChip } from "@/components/TeamChip";
+import { ExpandCard } from "@/components/ExpandCard";
+import { FixtureDetail } from "@/components/FixtureDetail";
+import { analyzeFixture } from "@/lib/fixtureAnalysis";
 
 export default function StartPage() {
   const manifest = getManifest();
@@ -123,46 +124,39 @@ export default function StartPage() {
 
       {upcoming.length > 0 && (
         <Section title="Als Nächstes">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: "0.85rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: "0.85rem", alignItems: "start" }}>
             {upcoming.map((m, i) => {
-              const h2h = safe(() => getH2H(h2hSlug(slugify(m.home), slugify(m.away)))) ||
-                safe(() => getH2H(h2hSlug(slugify(m.away), slugify(m.home))));
-              const prev = h2h?.meetings
-                .filter((x) => x.season === season - 1)
-                .slice(-1)[0];
-              // the JSON record is always team_a's perspective; re-orient so
-              // the first figure is THIS fixture's home team.
-              let recHome = 0;
-              let recAway = 0;
-              let recDraw = 0;
-              if (h2h) {
-                const homeIsA = h2h.team_a === m.home;
-                recHome = homeIsA ? h2h.record.a_wins : h2h.record.b_wins;
-                recAway = homeIsA ? h2h.record.b_wins : h2h.record.a_wins;
-                recDraw = h2h.record.draws;
-              }
+              const analysis = analyzeFixture(season, m, table);
+              const h2h = analysis?.h2h;
+              const prevMeeting = analysis?.h2h?.meetings.find((x) => x.season === season - 1);
               const h = teamLast5(m.home);
               const a = teamLast5(m.away);
               const showSparks = h.xgFor.length >= 2 || a.xgFor.length >= 2;
-              return (
-                <Reveal key={m.match_id} index={i} className="surface surface-hover" style={{ padding: "1.05rem", borderLeft: `3px solid ${teamColor(m.home).color}` }}>
+              const rankOf = (t: string) =>
+                analysis ? (t === m.home ? analysis.home.rank : analysis.away.rank) : null;
+              const summary = (
+                <>
                   <div className="label">
                     {fmtDate(m.date)}
                     {m.time ? ` · ${fmtTime(m.time)}` : ""}
                   </div>
                   <div style={{ fontWeight: 600, margin: "0.35rem 0", fontFamily: "var(--font-display)" }}>
-                    {teamName(m.home)} <span className="muted">–</span> {teamName(m.away)}
+                    {teamName(m.home)}
+                    {rankOf(m.home) && <span className="muted num" style={{ fontWeight: 400 }}> ({rankOf(m.home)}.)</span>}
+                    <span className="muted"> – </span>
+                    {teamName(m.away)}
+                    {rankOf(m.away) && <span className="muted num" style={{ fontWeight: 400 }}> ({rankOf(m.away)}.)</span>}
                   </div>
-                  {prev && (
+                  {prevMeeting && (
                     <div className="muted num" style={{ fontSize: "var(--fs-small)" }}>
-                      Vorsaison: {teamName(prev.home_team)} {prev.home_goals}:{prev.away_goals} {teamName(prev.away_team)}
+                      Vorsaison: {teamName(prevMeeting.home_team)} {prevMeeting.home_goals}:{prevMeeting.away_goals} {teamName(prevMeeting.away_team)}
                     </div>
                   )}
-                  {h2h && h2h.record.played > 0 && (
+                  {h2h && (
                     <div className="muted" style={{ fontSize: "var(--fs-small)" }}>
-                      Bilanz: <span className="num">{recHome}</span> S ·{" "}
-                      <span className="num">{recDraw}</span> U ·{" "}
-                      <span className="num">{recAway}</span> N für {teamName(m.home)}
+                      Bilanz: <span className="num">{h2h.record.home}</span> S ·{" "}
+                      <span className="num">{h2h.record.draw}</span> U ·{" "}
+                      <span className="num">{h2h.record.away}</span> N für {teamName(m.home)}
                       <span style={{ opacity: 0.7 }}> ({h2h.record.played} Spiele)</span>
                     </div>
                   )}
@@ -178,6 +172,17 @@ export default function StartPage() {
                       </div>
                     </div>
                   )}
+                </>
+              );
+              return (
+                <Reveal key={m.match_id} index={i}>
+                  <ExpandCard summary={summary} accent={teamColor(m.home).color}>
+                    {analysis ? (
+                      <FixtureDetail a={analysis} />
+                    ) : (
+                      <p className="muted" style={{ padding: "1rem", margin: 0 }}>Keine Analysedaten verfügbar.</p>
+                    )}
+                  </ExpandCard>
                 </Reveal>
               );
             })}
