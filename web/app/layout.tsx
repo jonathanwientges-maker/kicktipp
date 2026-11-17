@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import { getManifest } from "@/lib/data";
+import { getManifest, type Manifest } from "@/lib/data";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import { NavBar } from "@/components/NavBar";
+import { OutageBanner } from "@/components/OutageBanner";
 
 const display = localFont({
   src: [
@@ -51,8 +52,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   let generatedAt = "";
+  let understat: NonNullable<Manifest["data_status"]>["understat"] = undefined;
   try {
-    generatedAt = getManifest().generated_at;
+    const manifest = getManifest();
+    generatedAt = manifest.generated_at;
+    understat = manifest.data_status?.understat;
   } catch {
     /* manifest not exported yet */
   }
@@ -61,6 +65,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ServiceWorker />
         <NavBar />
+        {understat && understat.ok === false && (
+          <OutageBanner downSince={understat.down_since} lastDataDate={understat.last_data_date} />
+        )}
         <main
           className="container-page"
           style={{

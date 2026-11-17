@@ -218,6 +218,13 @@ export default async function SpielberichtPage({ params }: { params: Promise<{ m
             <p className="muted" style={{ margin: 0 }}>
               Tatsächliches Ergebnis: {m.model.result[0]}:{m.model.result[1]}
             </p>
+            {m.model.submitted === false && (
+              <p className="not-entered-note">
+                <span className="ob-tag">Nicht abgegeben</span>
+                Dieser Tipp wurde wegen des Datenausfalls nie bei Kicktipp eingetragen.
+                Die Punkte sind nur nachträglich berechnet und zählen nicht.
+              </p>
+            )}
           </div>
         </Section>
       )}

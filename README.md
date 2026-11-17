@@ -103,6 +103,16 @@ pytest tests/ -q                 # 38 unit tests
 - **No silent fallbacks** — an unresolved team name, a failed scrape, or a
   detected Understat data-drift all raise/abort loudly rather than
   defaulting quietly.
+  **One deliberate, loud exception: a full Understat outage**
+  (`config.UNDERSTAT_OUTAGE_FALLBACK`, `src/source_status.py`). Added after
+  understat.com went offline in Nov 2026 and stopped all tipping for 2+
+  weeks. The run continues on football-data odds + results
+  (`predict.augment_with_fd_results` feeds Dixon-Coles and scoring; xG
+  stays frozen at the last good scrape), flags `UNDERSTAT_OUTAGE` in the
+  report and email, records the outage in `data/state/source_status.json`,
+  and the website shows an outage banner. The first run that reaches
+  Understat again clears the flag and backfills every missed match.
+  Setting the flag to `False` restores the hard abort.
 - **Every probability grid sums to 1** within `1e-9` (asserted in
   `blend.build_final_grid`).
 - **All backtest tuning is nested/out-of-sample** — a predicted season's own

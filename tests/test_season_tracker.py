@@ -87,6 +87,9 @@ def test_empty_input_yields_zero_stats_and_empty_frame():
     assert stats == {
         "matchdays": 0, "points_per_matchday": 0.0,
         "exact_hits": 0, "gd_hits": 0,
+        # src/tip_log.py: no rows -> nothing missed
+        "not_entered": 0, "not_entered_points": 0,
+        "entered_points_total": None,
     }
 
 

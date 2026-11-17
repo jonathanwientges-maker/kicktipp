@@ -58,12 +58,22 @@ jobs:
           KICKTIPP_LIVE: ${{ secrets.KICKTIPP_LIVE }}
         run: python -m src.predict
 
+      # Re-export the website JSON so the site's data-source status (the
+      # Understat outage banner, src/source_status.py) follows each run:
+      # it appears on the first failing run and clears on the first run
+      # that reaches Understat again, instead of waiting for Monday's
+      # results_refresh. Runs even if predict failed, so a hard failure
+      # still leaves the site reflecting the latest known status.
+      - name: Export website data
+        if: always()
+        run: python -m src.export_web
+
       - name: Commit data + report
         if: always()
         run: |
           git config user.name "kicktipp-bot"
           git config user.email "kicktipp-bot@users.noreply.github.com"
-          git add data/
+          git add data/ web/public/data/
           git diff --cached --quiet || git commit -m "weekly: predictions + report [skip ci]"
           git pull --rebase origin main
           git push

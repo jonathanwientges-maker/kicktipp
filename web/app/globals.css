@@ -1843,3 +1843,141 @@ svg rect[role="button"]:focus-visible {
   font-size: var(--fs-label);
   color: var(--text-dim);
 }
+
+/* ---------------------------------------------------------------------------
+   Data-source outage banner (components/OutageBanner.tsx). Shown only while
+   manifest.data_status.understat.ok === false. Caution-tape edge, pixel ball
+   cracked in two with drifting smoke. Motion is decorative; the global
+   reduced-motion guard at the top of this file stills it.
+--------------------------------------------------------------------------- */
+.ob {
+  position: relative;
+  z-index: 2;
+  margin-top: 1rem;
+  margin-bottom: 0.25rem;
+}
+.ob-tape {
+  height: 10px;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--warning) 0 12px,
+    #14161b 12px 24px
+  );
+  image-rendering: pixelated;
+}
+.ob-inner {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.1rem 1.25rem 1.2rem;
+  background:
+    radial-gradient(120% 140% at 0% 50%, rgba(251, 191, 36, 0.14), transparent 60%),
+    var(--surface);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-top: none;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  box-shadow: var(--shadow-card), var(--highlight-top);
+}
+.ob-art {
+  flex: none;
+  width: 112px;
+  height: auto;
+  image-rendering: pixelated;
+  overflow: visible;
+}
+.ob-text {
+  min-width: 0;
+}
+.ob-tag {
+  display: inline-block;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #14161b;
+  background: var(--warning);
+  padding: 0.18rem 0.5rem;
+  border-radius: 3px;
+  box-shadow: 2px 2px 0 #14161b;
+}
+.ob-headline {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: var(--fs-h2);
+  line-height: 1.15;
+  margin: 0.55rem 0 0.35rem;
+  color: var(--text);
+}
+.ob-body {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.5;
+}
+.ob-foot {
+  margin: 0.45rem 0 0;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+/* the two halves drift apart and wobble */
+.ob-half {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+.ob-left {
+  animation: ob-left 2.8s steps(4, end) infinite;
+}
+.ob-right {
+  animation: ob-right 2.8s steps(4, end) infinite;
+}
+@keyframes ob-left {
+  0%, 100% { transform: translate(-1px, 0) rotate(-6deg); }
+  50% { transform: translate(-1.6px, 0.4px) rotate(-11deg); }
+}
+@keyframes ob-right {
+  0%, 100% { transform: translate(1px, 0) rotate(6deg); }
+  50% { transform: translate(1.6px, 0.4px) rotate(11deg); }
+}
+.ob-smoke {
+  animation: ob-smoke 3s steps(6, end) infinite;
+  opacity: 0;
+}
+@keyframes ob-smoke {
+  0% { opacity: 0; transform: translate(0, 2px); }
+  20% { opacity: 0.85; }
+  100% { opacity: 0; transform: translate(1px, -4px); }
+}
+.ob-spark {
+  animation: ob-spark 2.2s steps(2, end) infinite;
+}
+@keyframes ob-spark {
+  0%, 60%, 100% { opacity: 0; }
+  70%, 90% { opacity: 1; }
+}
+
+@media (max-width: 560px) {
+  .ob-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .ob-art {
+    width: 88px;
+  }
+}
+
+/* model tip that was scored but never entered on Kicktipp (spiel page) */
+.not-entered-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed rgba(251, 191, 36, 0.6);
+  border-radius: var(--r-sm);
+  color: var(--warning);
+  font-size: var(--fs-small);
+}

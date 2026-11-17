@@ -39,6 +39,7 @@
   }
 
   table.tip-summary { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  table.tip-summary tr.not-entered td { color: #fbbf24; font-weight: 600; }
   table.tip-summary th, table.tip-summary td {
     text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: 0.92rem;
   }
@@ -169,6 +170,10 @@
     <tr><td>Points per matchday (model)</td><td>{{ "%.2f"|format(season_stats.points_per_matchday) }}</td></tr>
     <tr><td>Exact-score hits</td><td>{{ season_stats.exact_hits }}</td></tr>
     <tr><td>GD hits</td><td>{{ season_stats.gd_hits }}</td></tr>
+    {% if season_stats.not_entered %}
+    <tr class="not-entered"><td>Tips NOT entered on Kicktipp (outage / failed run)</td><td>{{ season_stats.not_entered }} matches &middot; {{ season_stats.not_entered_points }} model points not earned</td></tr>
+    <tr><td>Points actually earned on Kicktipp</td><td>{{ season_stats.entered_points_total }}</td></tr>
+    {% endif %}
   </tbody>
 </table>
 

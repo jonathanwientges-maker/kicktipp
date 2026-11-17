@@ -53,6 +53,10 @@ _TRACKER_COLS = [
     ("model_points", "Model", ACCENT),
     ("always21_points", "Always 2-1", "#9aa5b1"),
     ("market_ev_points", "Market EV", "#e07b39"),
+    # Points the model tips actually earned on Kicktipp: model_points
+    # only where the tip was really entered (season_points.tip_submitted,
+    # src/tip_log.py). Diverges from "Model" for every missed tip.
+    ("entered_points", "Model (entered on Kicktipp)", "#4ade80"),
 ]
 
 
@@ -76,6 +80,8 @@ def matchday_points(season_points_df):
         df = df.sort_values("datetime", kind="stable")
     df = df.reset_index(drop=True)
     df["_matchday"] = df.index // BUNDESLIGA_MATCHES_PER_MATCHDAY + 1
+    if "tip_submitted" in df.columns and "model_points" in df.columns:
+        df["entered_points"] = df["model_points"] * df["tip_submitted"].fillna(1)
 
     sum_cols = [c for c, _, _ in _TRACKER_COLS if c in df.columns]
     for c in ("exact_hit", "gd_hit"):
@@ -100,6 +106,22 @@ def season_summary_stats(season_points_df):
         "points_per_matchday": (total_model / n_md) if n_md else 0.0,
         "exact_hits": int(md["exact_hit"].sum()) if "exact_hit" in md.columns else 0,
         "gd_hits": int(md["gd_hit"].sum()) if "gd_hit" in md.columns else 0,
+        **_not_entered_stats(season_points_df),
+    }
+
+
+def _not_entered_stats(season_points_df):
+    """Scored tips that never reached Kicktipp (tip_submitted == 0)."""
+    df = season_points_df
+    if df is None or len(df) == 0 or "tip_submitted" not in df.columns:
+        return {"not_entered": 0, "not_entered_points": 0, "entered_points_total": None}
+    miss = df[df["tip_submitted"].fillna(1).astype(int) == 0]
+    return {
+        "not_entered": int(len(miss)),
+        "not_entered_points": int(miss["model_points"].sum()),
+        "entered_points_total": int(
+            (df["model_points"] * df["tip_submitted"].fillna(1)).sum()
+        ),
     }
 
 

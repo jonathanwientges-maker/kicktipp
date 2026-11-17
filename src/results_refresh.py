@@ -25,6 +25,7 @@ from src import (
     scrape_footballdata,
     scrape_understat,
     storage,
+    tip_log,
 )
 
 
@@ -51,8 +52,16 @@ def refresh_and_score():
     for w in warnings:
         _log("WARNING: {0}".format(w))
 
-    matches, shots, odds = predict_mod.build_full_history()
+    understat_matches, shots, odds = predict_mod.build_full_history()
     tuned = predict_mod.load_tuned_params()
+    # Results history = Understat + any current-season results only
+    # football-data has so far (Understat outage / lag). Those extra rows
+    # carry no xG, so the xG features below keep using the Understat-only
+    # frame; DC fits, odds joins and scoring use the augmented one.
+    matches = predict_mod.augment_with_fd_results(understat_matches, season, warnings)
+    for w in warnings:
+        if w.startswith("football-data result(s)"):
+            _log("WARNING: {0}".format(w))
 
     already_scored = load_season_points()
     scored_ids = set(already_scored["match_id"]) if len(already_scored) else set()
@@ -62,15 +71,15 @@ def refresh_and_score():
 
     if len(newly_completed) == 0:
         _log("No newly-completed matches to score.")
-        return already_scored
+        return _annotate_and_save(already_scored)
 
-    xg_enriched = features.compute_lambda_xg(matches, shots)
+    xg_enriched = features.compute_lambda_xg(understat_matches, shots)
     xg_lookup = {
         r["match_id"]: (r["lambda_xg_h"], r["lambda_xg_a"])
         for _, r in xg_enriched.iterrows()
     }
 
-    odds_by_id = _index_odds(odds)
+    odds_by_id = _index_odds(odds, matches[matches["season"] == season])
 
     new_rows = []
     for _, m in newly_completed.iterrows():
@@ -128,7 +137,7 @@ def refresh_and_score():
 
     if not new_rows:
         _log("No matches had sufficient history to score.")
-        return already_scored
+        return _annotate_and_save(already_scored)
 
     new_df = pd.DataFrame(new_rows)
     # Avoid pandas' all-empty-frame concat FutureWarning on the first-ever
@@ -137,20 +146,41 @@ def refresh_and_score():
         updated = new_df
     else:
         updated = pd.concat([already_scored, new_df], ignore_index=True)
-    os.makedirs(config.STATE_DIR, exist_ok=True)
-    updated.to_csv(config.SEASON_POINTS_PATH, index=False)
+    updated = _annotate_and_save(updated)
     _log("Scored {0} newly-completed match(es); season_points.csv now has {1} rows.".format(
         len(new_rows), len(updated)
     ))
     return updated
 
 
-def _index_odds(odds_df):
+def _annotate_and_save(season_points):
+    """(Re)compute tip_submitted / submitted_tip for every row from the
+    Kicktipp log (src/tip_log.py) and write season_points.csv. Runs on
+    every refresh, so rows scored before the log existed get the columns
+    too, and a late log entry is picked up next time."""
+    if len(season_points) == 0:
+        return season_points
+    annotated = tip_log.annotate(season_points)
+    n_missing = int((annotated["tip_submitted"] == 0).sum())
+    if n_missing:
+        _log("{0} scored tip(s) were never entered on Kicktipp "
+             "(tip_submitted = 0).".format(n_missing))
+    os.makedirs(config.STATE_DIR, exist_ok=True)
+    annotated.to_csv(config.SEASON_POINTS_PATH, index=False)
+    return annotated
+
+
+def _index_odds(odds_df, matches=None):
     """Index odds rows by match via a simple (home,away,date) key, reusing
     the same tolerant matching as backtest._join_odds_to_matches but
-    returning a flat dict for direct lookup convenience here."""
+    returning a flat dict for direct lookup convenience here.
+
+    `matches` defaults to the stored Understat current-season matches;
+    refresh_and_score passes the football-data-augmented frame so results
+    scored during an Understat outage still get their odds."""
     from src.backtest import _join_odds_to_matches
-    matches = storage.all_understat_matches(seasons=[config.CURRENT_SEASON])
+    if matches is None:
+        matches = storage.all_understat_matches(seasons=[config.CURRENT_SEASON])
     if len(matches) == 0:
         return {}
     return _join_odds_to_matches(matches, odds_df)

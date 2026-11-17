@@ -38,7 +38,9 @@ from src import (
     report,
     scrape_footballdata,
     scrape_understat,
+    source_status,
     storage,
+    tip_log,
 )
 
 FIXTURE_WINDOW_DAYS = 8
@@ -72,7 +74,16 @@ def load_tuned_params():
 
 
 def refresh_current_season_data(season, warnings):
-    """Step 1: scrape current-season Understat + D1.csv, run drift check."""
+    """Step 1: scrape current-season Understat + D1.csv, run drift check.
+
+    Returns {"understat_ok": bool}. If Understat is unreachable and
+    config.UNDERSTAT_OUTAGE_FALLBACK is on, the run does NOT abort: the
+    outage is recorded in source_status.json, a loud UNDERSTAT_OUTAGE
+    warning goes into the report, the Understat partitions are left
+    untouched (so the next good scrape backfills every missed match), and
+    football-data's D1.csv is still refreshed so odds + results stay
+    current. See src/source_status.py for why.
+    """
     existing = storage.understat_matches(season)
     existing_ids = set(existing["match_id"]) if existing is not None else set()
 
@@ -84,10 +95,25 @@ def refresh_current_season_data(season, warnings):
             )
         )
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(
-            "Understat scrape for season {0} failed: {1}. Aborting run "
-            "(no silent fallback).".format(season, exc)
+        if not config.UNDERSTAT_OUTAGE_FALLBACK:
+            raise RuntimeError(
+                "Understat scrape for season {0} failed: {1}. Aborting run "
+                "(no silent fallback).".format(season, exc)
+            )
+        entry = source_status.mark_down("understat", exc)
+        msg = (
+            "UNDERSTAT_OUTAGE: Understat unreachable (down since {0}): {1}. "
+            "Running in degraded mode -- tips use football-data odds + "
+            "results; xG/shots/lineups frozen at the last good scrape. "
+            "Recovers automatically on the first run that reaches "
+            "Understat again.".format(entry["down_since"], exc)
         )
+        _log("WARNING: " + msg)
+        warnings.append(msg)
+        _refresh_d1(season, warnings)
+        return {"understat_ok": False}
+
+    source_status.mark_ok("understat")
 
     # Not-yet-played fixtures (teams + kickoff only) -- always overwrite
     # with the freshest pull; shrinks to empty as the season completes.
@@ -143,6 +169,12 @@ def refresh_current_season_data(season, warnings):
             "since the last check -- see drift_hashes.json."
         )
 
+    _refresh_d1(season, warnings)
+    return {"understat_ok": True}
+
+
+def _refresh_d1(season, warnings):
+    """Refresh the current-season football-data D1.csv (odds + results)."""
     try:
         d1_df = scrape_footballdata.download_division_csv(season, "D1")
         d1_df = scrape_footballdata.parse_date_column(d1_df, date_col="Date")
@@ -213,6 +245,77 @@ def build_full_history():
     return matches, shots, odds
 
 
+def augment_with_fd_results(matches, season, warnings):
+    """
+    Add current-season results that football-data's D1.csv already has but
+    the Understat match store does not (Understat outage, or Understat
+    simply lagging). Returns `matches` + those rows, with xG/shot columns
+    NaN and `result_source` = "football-data" (Understat rows get
+    "understat").
+
+    Use the result for Dixon-Coles fits and for results scoring ONLY --
+    never for xG features (no xG exists for these rows) and never write it
+    back into the Understat partition: the scraper skips match_ids it
+    already holds, so persisting these rows would stop Understat from ever
+    backfilling their xG once it is reachable again.
+
+    match_id comes from the stored Understat fixture partition, keyed by
+    (home, away) -- unique within a season -- so ids stay continuous with
+    season_points.csv and the website. A result whose fixture id cannot be
+    found is skipped with a warning (never invented).
+    """
+    out = matches.copy()
+    out["result_source"] = "understat"
+    odds = storage.odds_d1(season)
+    fixtures = storage.understat_fixtures(season)
+    if odds is None or len(odds) == 0 or fixtures is None or len(fixtures) == 0:
+        return out
+
+    # Compare in football-data name space: the Understat -> FD map is
+    # many-to-one (Understat has used both "SC Freiburg" and "Freiburg"),
+    # so the FD -> Understat reverse lookup is ambiguous. The Understat
+    # names written out come from the fixture row itself.
+    def fd(n):
+        return crosswalk.UNDERSTAT_TO_FD.get(n, n)
+
+    played = odds[odds["FTHG"].notna() & odds["FTAG"].notna()]
+    s_matches = matches[matches["season"] == season]
+    have = set(zip(s_matches["home_team"].map(fd), s_matches["away_team"].map(fd)))
+    fx_by_pair = {
+        (fd(r["home_team"]), fd(r["away_team"])): r for _, r in fixtures.iterrows()
+    }
+
+    rows, unmatched = [], []
+    for _, r in played.iterrows():
+        pair = (r["HomeTeam"], r["AwayTeam"])
+        if pair in have:
+            continue
+        fx = fx_by_pair.get(pair)
+        if fx is None:
+            unmatched.append("{0} v {1}".format(*pair))
+            continue
+        rows.append({
+            "match_id": int(fx["match_id"]), "season": season,
+            "league": config.LEAGUE, "datetime": fx["datetime"],
+            "home_team": fx["home_team"], "away_team": fx["away_team"],
+            "home_goals": int(r["FTHG"]), "away_goals": int(r["FTAG"]),
+            "result_source": "football-data",
+        })
+
+    if unmatched:
+        warnings.append(
+            "football-data result(s) with no Understat fixture id, not used: "
+            "{0}".format(", ".join(unmatched))
+        )
+    if not rows:
+        return out
+    _log("Added {0} result(s) from football-data that Understat does not "
+         "have yet (DC + scoring only, no xG).".format(len(rows)))
+    extra = pd.DataFrame(rows)
+    out = pd.concat([out, extra], ignore_index=True, sort=False)
+    return out.sort_values("datetime").reset_index(drop=True)
+
+
 def detect_new_teams(fixtures_df, known_understat_names, warnings):
     """A team in fixtures.csv not resolvable via the crosswalk (and not
     already known) needs a promoted-team prior built from D2 history --
@@ -229,8 +332,15 @@ def detect_new_teams(fixtures_df, known_understat_names, warnings):
     return new_teams
 
 
-def rebuild_state(matches, shots):
-    """Step 3: rebuild rolling xG + DC ratings from full history."""
+def rebuild_state(matches, shots, dc_matches=None):
+    """Step 3: rebuild rolling xG + DC ratings from full history.
+
+    `dc_matches` (default: `matches`) is the result history for the
+    Dixon-Coles fit -- pass augment_with_fd_results(...) so DC still sees
+    the latest results while Understat is down. xG features always use
+    the Understat-only `matches`."""
+    if dc_matches is None:
+        dc_matches = matches
     # Fix round F4: seed promoted teams' rolling window with a
     # D2-informed prior. Live prediction uses the "no held-out future"
     # fit (promoted_team_seeds_for_live) -- there's no future to leak
@@ -244,7 +354,7 @@ def rebuild_state(matches, shots):
 
     tuned = load_tuned_params()
     as_of = pd.Timestamp.now(tz="UTC").tz_localize(None)
-    dc_fit = dc.fit_dixon_coles(matches, as_of, halflife=tuned["halflife"])
+    dc_fit = dc.fit_dixon_coles(dc_matches, as_of, halflife=tuned["halflife"])
 
     return xg_lookup, dc_fit, tuned, xg_enriched
 
@@ -579,9 +689,12 @@ def main():
 
     matches, shots, odds = build_full_history()
     detect_new_teams(fixtures_df, set(matches["home_team"]), warnings)
+    dc_matches = augment_with_fd_results(matches, season, warnings)
 
     _log("Step 3: rebuilding ratings/rolling state...")
-    xg_lookup, dc_fit, tuned, xg_enriched = rebuild_state(matches, shots)
+    xg_lookup, dc_fit, tuned, xg_enriched = rebuild_state(
+        matches, shots, dc_matches=dc_matches
+    )
 
     _log("Step 4: predicting fixtures in the next {0} days...".format(FIXTURE_WINDOW_DAYS))
     match_contexts, fixture_meta = predict_fixtures(
@@ -622,6 +735,9 @@ def main():
         kicktipp_lines = kicktipp_submit.summary_lines(kt_summary)
         for line in kicktipp_lines:
             _log(line)
+        if not args.no_email:  # local dry runs don't belong in the record
+            n = tip_log.append(kt_summary, match_contexts)
+            _log("Logged {0} Kicktipp entr(y/ies) to {1}".format(n, tip_log.LOG_PATH))
     except kicktipp_submit.KicktippNotConfigured as exc:
         _log("Kicktipp auto-submit not configured: {0}".format(exc))
     except kicktipp_submit.KicktippSubmitError as exc:

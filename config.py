@@ -83,6 +83,15 @@ FALLBACK_LAMBDAS = (1.45, 1.25)      # absolute last-resort (home, away) lambdas
 # Scraping
 # ---------------------------------------------------------------------------
 UNDERSTAT_DELAY_S = 2.0       # minimum seconds between Understat requests
+
+# Understat outage handling (src/source_status.py). True: an unreachable
+# Understat no longer aborts predict/results_refresh -- the run continues
+# in a LOUD degraded mode (UNDERSTAT_OUTAGE warning in report + email,
+# outage banner on the website) on football-data odds + results, and
+# recovers by itself once Understat answers again. False restores the
+# original hard abort. Added after the Nov 2026 outage, which stopped all
+# tipping for 2+ weeks although the tuned blend weights xG at 0.0.
+UNDERSTAT_OUTAGE_FALLBACK = True
 UNDERSTAT_BASE = "https://understat.com"
 FD_BASE = "https://www.football-data.co.uk"
 
@@ -175,6 +184,15 @@ KICKTIPP_MIN_LEAD_HOURS = 0
 # full recompute and its tips supersede the last run's. Enter a manual
 # tip only after the final run before kickoff, or it will be replaced.
 KICKTIPP_FILL_BLANKS_ONLY = False
+
+# src/tip_log.py: data/state/kicktipp_log.csv records what each run
+# actually entered on Kicktipp. Matches kicking off before this (UTC)
+# instant predate the log and count as submitted; from here on a match
+# counts as submitted only if the log shows a live run had the tip in the
+# form before kickoff. Set to the morning after matchday 8 (last match
+# 1 Nov 2026), so matchday 9 -- missed during the Understat outage --
+# is marked not-submitted.
+KICKTIPP_LOG_START = "2026-11-02 00:00:00"
 
 # Kicktipp shows German short team names in the bet form; the model
 # works in football-data.co.uk names. This maps the Kicktipp display

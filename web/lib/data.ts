@@ -28,6 +28,16 @@ export interface Manifest {
   seasons: number[];
   team_stats_available: boolean;
   warnings: string[];
+  /** upstream-source health (src/source_status.py); absent in older exports */
+  data_status?: {
+    understat?: {
+      ok: boolean;
+      down_since: string | null;
+      last_checked: string | null;
+      /** kickoff date (YYYY-MM-DD) of the newest Understat match on the site */
+      last_data_date: string | null;
+    };
+  };
 }
 export function getManifest(): Manifest {
   return readJson<Manifest>("manifest.json");
@@ -125,7 +135,14 @@ export interface MatchDetail extends MatchEntry {
   verdict: string;
   ppda?: { home: number | null; away: number | null };
   deep?: { home: number | null; away: number | null };
-  model: { tip: [number, number]; points: number; result: [number, number] } | null;
+  model: {
+    tip: [number, number];
+    points: number;
+    result: [number, number];
+    /** false = scored, but the tip never reached Kicktipp (e.g. Understat
+     *  outage); null/absent = backtest or unknown */
+    submitted?: boolean | null;
+  } | null;
 }
 export interface PlayerLine {
   player_id: number;

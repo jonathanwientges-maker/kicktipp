@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 import config
-from src import storage, web_metrics
+from src import source_status, storage, web_metrics
 
 WEB_DATA_DIR = os.path.join(config.ROOT_DIR, "web", "public", "data")
 
@@ -279,10 +279,14 @@ def _model_tips_frame(b):
                 th, ta = str(r["model_tip"]).split("-")
             except (ValueError, AttributeError):
                 continue
+            submitted = r.get("tip_submitted")
             rows.append({
                 "match_id": int(r["match_id"]), "tip_home": int(th), "tip_away": int(ta),
                 "model_points": int(r["model_points"]),
                 "result_home": np.nan, "result_away": np.nan,
+                # None = backtest/unknown; False = scored but never entered
+                # on Kicktipp (src/tip_log.py)
+                "submitted": None if pd.isna(submitted) else bool(int(submitted)),
             })
         if rows:
             frames.append(pd.DataFrame(rows))
@@ -316,8 +320,27 @@ def export_manifest(b, warnings):
         "seasons": [int(s) for s in b.seasons],
         "team_stats_available": bool(b.team_stats_available),
         "warnings": list(warnings),
+        "data_status": _data_status(b),
     }
     _write("manifest.json", payload)
+
+
+def _data_status(b):
+    """Upstream-source health for the site's outage banner (see
+    src/source_status.py). `last_data_date` = kickoff date of the newest
+    Understat match the site was built from, i.e. how stale it is."""
+    us = source_status.load().get("understat", {})
+    last = b.matches["datetime"].max() if len(b.matches) else None
+    return {
+        "understat": {
+            "ok": bool(us.get("ok", True)),
+            "down_since": us.get("down_since"),
+            "last_checked": us.get("last_checked"),
+            "last_data_date": (
+                pd.Timestamp(last).strftime("%Y-%m-%d") if last is not None and pd.notna(last) else None
+            ),
+        }
+    }
 
 
 def _fixture_entries(b, season):
@@ -476,6 +499,11 @@ def export_match(b, m, tips_by_id):
             "tip": [tip["tip_home"], tip["tip_away"]],
             "points": tip["model_points"],
             "result": [core["home_goals"], core["away_goals"]],
+            "submitted": (
+                None if "submitted" not in tip or tip["submitted"] is None
+                or (isinstance(tip["submitted"], float) and math.isnan(tip["submitted"]))
+                else bool(tip["submitted"])
+            ),
         }
     else:
         payload["model"] = None

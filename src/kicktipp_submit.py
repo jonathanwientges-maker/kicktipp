@@ -527,6 +527,7 @@ def submit_tips(match_contexts, matchday_index, dry_run=False, live=None):
         "live": effective_live,
         "submitted": submitted,
         "http_status": http_status,
+        "entries": _entries(decision, model_tips, effective_live, submitted),
         "placed": placed_labels,
         "overwritten": overwritten_labels,
         "skipped_existing": decision["skipped_existing"],
@@ -534,6 +535,46 @@ def submit_tips(match_contexts, matchday_index, dry_run=False, live=None):
         "skipped_kickoff": decision["skipped_kickoff"],
         "unmatched": decision["unmatched"],
     }
+
+
+def _entries(decision, model_tips, live, submitted):
+    """
+    Machine-readable per-match outcome for src/tip_log.py: one dict per
+    model tip with home_fd, away_fd, tip ("h-a"), status and `committed`.
+
+    committed = the model tip is actually standing in the Kicktipp form
+    after this run: freshly POSTed in a live run, or already there
+    ("unchanged") in a live run. Dry runs never commit anything.
+    """
+    out = []
+    placed_keys = set()
+    for p in decision["to_place"]:
+        key = (p["row"]["home_fd"], p["row"]["away_fd"])
+        placed_keys.add(key)
+        out.append({
+            "home_fd": key[0], "away_fd": key[1],
+            "tip": "{0}-{1}".format(p["tip_h"], p["tip_a"]),
+            "status": "overwritten" if p["overwrite"] else "placed",
+            "committed": bool(live and submitted),
+        })
+    # the skipped_* lists carry labels "Home vs Away (...)"; map them back
+    # through the model-tip index rather than re-parsing team names.
+    for status, labels in (("unchanged", decision["skipped_unchanged"]),
+                           ("kickoff", decision["skipped_kickoff"]),
+                           ("existing", decision["skipped_existing"])):
+        for label in labels:
+            for key, (th, ta, _) in model_tips.items():
+                if key in placed_keys:
+                    continue
+                if label.startswith("{0} vs {1} (".format(*key)):
+                    out.append({
+                        "home_fd": key[0], "away_fd": key[1],
+                        "tip": "{0}-{1}".format(th, ta),
+                        "status": status,
+                        "committed": bool(live and status == "unchanged"),
+                    })
+                    break
+    return out
 
 
 def summary_lines(summary):
