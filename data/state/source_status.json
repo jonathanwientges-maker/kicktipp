@@ -1,7 +1,7 @@
 {
   "understat": {
     "down_since": "2026-11-02T09:00:00Z",
-    "last_checked": "2026-11-17T21:09:53Z",
+    "last_checked": "2026-11-20T22:43:46Z",
     "last_error": "Understat request to https://understat.com/getLeagueData/Bundesliga/2026 failed after 3 retries: Expecting value: line 1 column 1 (char 0)",
     "last_success": "2026-10-30T16:30:00Z",
     "ok": false
